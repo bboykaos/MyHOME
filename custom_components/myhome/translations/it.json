@@ -75,9 +75,15 @@
       },
       "decoders": {
         "title": "Configurazione Decoder Streaming (Dynamic Proxy)",
-        "description": "Mappa gli streamer di rete (es. Arylic, WiiM, Cambridge Audio) collegati fisicamente agli ingressi AUX/Sorgente della filodiffusione BTicino. Il Dynamic Proxy instradarà automaticamente lo streaming e clonerà copertine e titoli brano.",
+        "description": "Seleziona la modalità di instradamento per gli streamer (es. Echo Dot, Arylic, WiiM) collegati agli ingressi AUX della matrice BTicino.",
         "data": {
-          "decoder_mode": "Modalità Instradamento Streamer",
+          "decoder_mode": "Modalità Instradamento Streamer"
+        }
+      },
+      "decoders_slots": {
+        "title": "Configurazione Ingressi e Guadagno Streamer",
+        "description": "Mappa l'entità dello streamer sul relativo ingresso AUX della matrice BTicino e imposta il pre-gain anti-fruscio.",
+        "data": {
           "decoder_1_entity": "Decoder Slot 1 (media_player)",
           "decoder_1_source": "Sorgente BTicino Slot 1 (1-4)",
           "decoder_1_pre_gain": "Pre-gain Slot 1 (offset anti-fruscio 0-50%)",

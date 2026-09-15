@@ -75,9 +75,15 @@
       },
       "decoders": {
         "title": "Streaming Decoder Configuration (Dynamic Proxy)",
-        "description": "Map network streamers (e.g. Arylic, WiiM, Cambridge Audio) physically wired to the BTicino sound diffusion / matrix AUX source inputs. The Dynamic Proxy will route streams and mirror artist/track/cover art automatically.",
+        "description": "Select the routing mode for network streamers (e.g. Echo Dot, Arylic, WiiM) connected to BTicino audio matrix AUX inputs.",
         "data": {
-          "decoder_mode": "Streamer Routing Mode",
+          "decoder_mode": "Streamer Routing Mode"
+        }
+      },
+      "decoders_slots": {
+        "title": "Streamer Inputs & Gain Configuration",
+        "description": "Map the streaming player entity to the corresponding BTicino AUX input and configure the anti-hiss pre-gain offset.",
+        "data": {
           "decoder_1_entity": "Decoder Slot 1 (media_player)",
           "decoder_1_source": "BTicino Source Slot 1 (1-4)",
           "decoder_1_pre_gain": "Pre-gain Slot 1 (anti-hiss offset 0-50%)",

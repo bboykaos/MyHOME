@@ -500,19 +500,51 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             ),
         )
 
-    async def async_step_decoders(self, user_input=None, errors={}):  # pylint: disable=dangerous-default-value
-        """Manage decoder slots for Dynamic Proxy streaming."""
+    async def async_step_decoders(self, user_input=None):
+        """Step 1: Choose decoder routing mode (Shared vs Exclusive)."""
+        if user_input is not None:
+            self.options[CONF_DECODER_MODE] = user_input.get(CONF_DECODER_MODE, DECODER_MODE_SHARED)
+            return await self.async_step_decoders_slots()
+
+        cur_mode = self.options.get(CONF_DECODER_MODE, DECODER_MODE_SHARED)
+        return self.async_show_form(
+            step_id="decoders",
+            data_schema=Schema(
+                {
+                    vol.Required(
+                        CONF_DECODER_MODE,
+                        default=cur_mode,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=DECODER_MODE_SHARED,
+                                    label="Sorgente Condivisa (Multiroom / Ingresso comune)",
+                                ),
+                                selector.SelectOptionDict(
+                                    value=DECODER_MODE_EXCLUSIVE,
+                                    label="Matrice Esclusiva (1 Streamer per Stanza)",
+                                ),
+                            ],
+                            mode=selector.SelectSelectorMode.DROPDOWN,
+                            translation_key="decoder_mode",
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_decoders_slots(self, user_input=None, errors={}):  # pylint: disable=dangerous-default-value
+        """Step 2: Configure decoder slots according to chosen mode."""
         errors = {}
         cur_mode = self.options.get(CONF_DECODER_MODE, DECODER_MODE_SHARED)
+        slots_count = 1 if cur_mode == DECODER_MODE_SHARED else CONF_DECODER_SLOTS
 
         if user_input is not None:
             from homeassistant.helpers import entity_registry as er
             registry = er.async_get(self.hass)
 
-            new_mode = user_input.get(CONF_DECODER_MODE, cur_mode)
-            slots_submitted = 1 if cur_mode == DECODER_MODE_SHARED else CONF_DECODER_SLOTS
-
-            for i in range(1, slots_submitted + 1):
+            for i in range(1, slots_count + 1):
                 entity_key = CONF_DECODER_ENTITY.format(i)
                 entity_val = user_input.get(entity_key, "").strip() if user_input.get(entity_key) else ""
                 if entity_val:
@@ -524,8 +556,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                             errors[entity_key] = "mass_entity_not_allowed"
 
             if not errors:
-                self.options[CONF_DECODER_MODE] = new_mode
-                for i in range(1, slots_submitted + 1):
+                for i in range(1, slots_count + 1):
                     entity_key = CONF_DECODER_ENTITY.format(i)
                     source_key = CONF_DECODER_SOURCE.format(i)
                     gain_key = CONF_DECODER_PRE_GAIN.format(i)
@@ -533,31 +564,11 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
                     self.options[source_key] = user_input.get(source_key, i)
                     self.options[gain_key] = user_input.get(gain_key, 0)
 
-                # Se l'utente ha cambiato modalità, ricarica il form per mostrare gli slot corretti
-                if new_mode != cur_mode:
-                    return await self.async_step_decoders()
-
                 self.hass.config_entries.async_update_entry(self.config_entry, options=self.options)
                 return self.async_create_entry(title="", data=self.options)
 
         schema_dict = {}
-        schema_dict[vol.Optional(
-            CONF_DECODER_MODE,
-            description={"suggested_value": cur_mode},
-        )] = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[
-                    selector.SelectOptionDict(value=DECODER_MODE_SHARED, label="Sorgente Condivisa (Multiroom / Ingresso comune)"),
-                    selector.SelectOptionDict(value=DECODER_MODE_EXCLUSIVE, label="Matrice Esclusiva (1 Streamer per Stanza)"),
-                ],
-                mode=selector.SelectSelectorMode.DROPDOWN,
-                translation_key="decoder_mode",
-            )
-        )
-
-        slots_to_show = 1 if cur_mode == DECODER_MODE_SHARED else CONF_DECODER_SLOTS
-
-        for i in range(1, slots_to_show + 1):
+        for i in range(1, slots_count + 1):
             entity_key = CONF_DECODER_ENTITY.format(i)
             source_key = CONF_DECODER_SOURCE.format(i)
             gain_key = CONF_DECODER_PRE_GAIN.format(i)
@@ -585,7 +596,7 @@ class MyhomeOptionsFlowHandler(OptionsFlow):
             )] = All(Coerce(int), Range(min=0, max=50))
 
         return self.async_show_form(
-            step_id="decoders",
+            step_id="decoders_slots",
             data_schema=Schema(schema_dict),
             errors=errors,
         )
