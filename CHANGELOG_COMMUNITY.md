@@ -21,7 +21,7 @@ This document provides a detailed overview of the technical architecture, new fe
 
 ## 1. Features Derived from GreenGrassBlueOcean & Architectural Improvements
 
-Inherited from the pioneering work of the *GreenGrassBlueOcean* project (*MyHOME_SoundDiffusion* by bboykaos), we adopted the core principles of the **Dynamic Proxy Multi-Room** architecture while introducing several key architectural evolutions:
+Inherited from the pioneering work of the *GreenGrassBlueOcean* project, we adopted the core principles of the **Dynamic Proxy Multi-Room** architecture while introducing several key architectural evolutions:
 
 ### A. Dynamic Proxy Decoder Pool (`decoder_pool.py`)
 * **Concept**: In BTicino home automation setups, modern media streamers (e.g., Amazon Echo Dot, WiiM Mini, Linkplay, Raspberry HiFiBerry) are often fewer in number than the wired rooms equipped with sound diffusion (for example, 1 or 2 streamers connected to AUX 2 and AUX 3 inputs of an F441 matrix to serve 5 or more zones).

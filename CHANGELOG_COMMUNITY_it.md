@@ -21,7 +21,7 @@ Questo documento illustra nel dettaglio l'architettura tecnica, le nuove funzion
 
 ## 1. Caratteristiche Derivate da GreenGrassBlueOcean & Nostre Migliorie
 
-Dall'eccellente lavoro del progetto *GreenGrassBlueOcean* (*MyHOME_SoundDiffusion* di bboykaos) abbiamo ereditato le fondamenta dell'architettura **Dynamic Proxy Multi-Room**, introducendo importanti evoluzioni architetturali:
+Dall'eccellente lavoro del progetto *GreenGrassBlueOcean* abbiamo ereditato le fondamenta dell'architettura **Dynamic Proxy Multi-Room**, introducendo importanti evoluzioni architetturali:
 
 ### A. Dynamic Proxy Decoder Pool (`decoder_pool.py`)
 * **Concetto**: Spesso in una casa domotica BTicino gli streamer moderni (es. Amazon Echo Dot, WiiM Mini, Linkplay, Raspberry HiFiBerry) sono in numero inferiore rispetto alle stanze cablate con la filodiffusione (ad esempio 1 o 2 streamer collegati agli ingressi AUX 2 e AUX 3 della matrice F441 per servire 5 o più zone).
