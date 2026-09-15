@@ -1163,6 +1163,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         else:
             await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, val))
 
+        # Gain staging: keep decoder volume proportionally higher than the zone volume
+        if self._active_decoder and self._source not in ["Radio FM (Tuner)", "7"]:
+            pool = self._get_pool()
+            if pool:
+                pre_gain_pct = pool.get_pre_gain(self._active_decoder)
+                decoder_volume = min(1.0, max(0.0, volume + pre_gain_pct / 100.0))
+                self._syncing_volume = True
+                try:
+                    await self.hass.services.async_call(
+                        "media_player",
+                        "volume_set",
+                        {
+                            "entity_id": self._active_decoder,
+                            "volume_level": decoder_volume,
+                        },
+                        blocking=False,
+                    )
+                except Exception as err:
+                    LOGGER.debug("Could not set volume on decoder %s: %s", self._active_decoder, err)
+                finally:
+                    self._syncing_volume = False
+
         self.async_write_ha_state()
 
     async def async_volume_up(self):
@@ -1176,6 +1198,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             cur_val = ha_volume_to_bticino(self._volume_level)
             new_val = min(31, cur_val + 1)
             self._volume_level = bticino_volume_to_ha(new_val)
+            if self._active_decoder and self._source not in ["Radio FM (Tuner)", "7"]:
+                pool = self._get_pool()
+                if pool:
+                    pre_gain_pct = pool.get_pre_gain(self._active_decoder)
+                    decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
+                    try:
+                        await self.hass.services.async_call(
+                            "media_player",
+                            "volume_set",
+                            {"entity_id": self._active_decoder, "volume_level": decoder_volume},
+                            blocking=False,
+                        )
+                    except Exception:
+                        pass
         self.async_write_ha_state()
 
     async def async_volume_down(self):
@@ -1189,6 +1225,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             cur_val = ha_volume_to_bticino(self._volume_level)
             new_val = max(1, cur_val - 1)
             self._volume_level = bticino_volume_to_ha(new_val)
+            if self._active_decoder and self._source not in ["Radio FM (Tuner)", "7"]:
+                pool = self._get_pool()
+                if pool:
+                    pre_gain_pct = pool.get_pre_gain(self._active_decoder)
+                    decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
+                    try:
+                        await self.hass.services.async_call(
+                            "media_player",
+                            "volume_set",
+                            {"entity_id": self._active_decoder, "volume_level": decoder_volume},
+                            blocking=False,
+                        )
+                    except Exception:
+                        pass
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool):
@@ -1419,8 +1469,19 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 await self._gateway_handler.send(cmd)
                 await asyncio.sleep(0.2)
 
-        self._state = MediaPlayerState.PLAYING
-        self.async_write_ha_state()
+        # Gain staging: imposta il volume del decoder proporzionalmente al volume della stanza
+        pre_gain_pct = pool.get_pre_gain(decoder_id)
+        cur_vol = self._volume_level if self._volume_level is not None else 0.5
+        decoder_volume = min(1.0, max(0.0, cur_vol + pre_gain_pct / 100.0))
+        try:
+            await self.hass.services.async_call(
+                "media_player",
+                "volume_set",
+                {"entity_id": decoder_id, "volume_level": decoder_volume},
+                blocking=False,
+            )
+        except Exception as err:
+            LOGGER.debug("Could not pre-set volume on decoder %s: %s", decoder_id, err)
 
         # Invia lo streaming URL al decoder esterno
         service_data = {
