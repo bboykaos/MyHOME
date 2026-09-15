@@ -1,218 +1,218 @@
 # BTicino MyHome Modernized - Community Changelog & Feature Guide
 
-Questo documento illustra nel dettaglio l'architettura tecnica, le nuove funzionalità introdotte e le ottimizzazioni di stabilità integrate nel componente personalizzato **MyHome** per **Home Assistant**, partendo dalla base ufficiale di **mantovanellimatteo** e arricchendola con l'intero ecosistema audio avanzato, la sintonizzazione radio FM RDS con loghi grafici, il Dynamic Proxy multi-room e i fix per l'anti-flooding del bus.
+This document provides a detailed overview of the technical architecture, new features, and stability optimizations integrated into the **MyHome** custom component for **Home Assistant**, building upon the official foundation by **mantovanellimatteo** and expanding it with the full advanced sound diffusion ecosystem, F500 FM RDS tuner with station logos, multi-room Dynamic Proxy, and bus anti-flooding fixes.
 
 ---
 
-## Indice
-1. [Caratteristiche Derivate da GreenGrassBlueOcean & Nostre Migliorie](#1-caratteristiche-derivate-da-greengrassblueocean--nostre-migliorie)
-2. [Guida alla Configurazione del Decoder Pool (Dynamic Proxy)](#2-guida-alla-configurazione-del-decoder-pool-dynamic-proxy)
-3. [Architettura Audio e Filodiffusione (WHO 22 / WHO 16)](#3-architettura-audio-e-filodiffusione-who-22--who-16)
-4. [Sintonizzatore Radio FM F500, RDS e Auto-Deploy Loghi](#4-sintonizzatore-radio-fm-f500-rds-e-auto-deploy-loghi)
-5. [Spegnimento Rapido a Singolo Tocco (Fast Turn-Off)](#5-spegnimento-rapido-a-singolo-tocco-fast-turn-off)
-6. [Integrazione Citofonica ed Eventi Ducking (`myhome_intercom_event`)](#6-integrazione-citofonica-ed-eventi-ducking-myhome_intercom_event)
-7. [Stabilità Gateway, Anti-Flooding e Workaround Socket di Comando](#7-stabilità-gateway-anti-flooding-e-workaround-socket-di-comando)
-8. [Scansione Attiva del Bus per la Diffusione Sonora (WHO 22)](#8-scansione-attiva-del-bus-per-la-diffusione-sonora-who-22)
-9. [Zero-Traffic Smart Reconnect e Risveglio Sincrono Radio](#9-zero-traffic-smart-reconnect-e-risveglio-sincrono-radio)
-10. [Allineamento Formale al Protocollo OpenWebNet (Verificato con `openwebnet-mcp`)](#10-allineamento-formale-al-protocollo-openwebnet-verificato-con-openwebnet-mcp)
-11. [Riconoscimento Pressione Fisica Frutti a Muro H4562 & Servizi Globali](#11-riconoscimento-pressione-fisica-frutti-a-muro-h4562--servizi-globali)
+## Table of Contents
+1. [Features Derived from GreenGrassBlueOcean & Architectural Improvements](#1-features-derived-from-greengrassblueocean--architectural-improvements)
+2. [Decoder Pool (Dynamic Proxy) Configuration Guide](#2-decoder-pool-dynamic-proxy-configuration-guide)
+3. [Audio & Sound Diffusion Architecture (WHO 22 / WHO 16)](#3-audio--sound-diffusion-architecture-who-22--who-16)
+4. [F500 FM Radio Tuner, RDS & Automatic Logo Deployment](#4-f500-fm-radio-tuner-rds--automatic-logo-deployment)
+5. [Single-Tap Fast Turn-Off](#5-single-tap-fast-turn-off)
+6. [Intercom Integration & Ducking Events (`myhome_intercom_event`)](#6-intercom-integration--ducking-events-myhome_intercom_event)
+7. [Gateway Stability, Anti-Flooding & Command Socket Protections](#7-gateway-stability-anti-flooding--command-socket-protections)
+8. [Active Bus Scanning for Sound Diffusion (WHO 22)](#8-active-bus-scanning-for-sound-diffusion-who-22)
+9. [Zero-Traffic Smart Reconnect & Synchronous Radio Wake-Up](#9-zero-traffic-smart-reconnect--synchronous-radio-wake-up)
+10. [Formal Alignment with OpenWebNet Specifications (Verified via `openwebnet-mcp`)](#10-formal-alignment-with-openwebnet-specifications-verified-via-openwebnet-mcp)
+11. [Physical Keypress Detection on H4562 In-Wall Modules & Global Services](#11-physical-keypress-detection-on-h4562-in-wall-modules--global-services)
 
 ---
 
-## 1. Caratteristiche Derivate da GreenGrassBlueOcean & Nostre Migliorie
+## 1. Features Derived from GreenGrassBlueOcean & Architectural Improvements
 
-Dall'eccellente lavoro del progetto *GreenGrassBlueOcean* (*MyHOME_SoundDiffusion* di bboykaos) abbiamo ereditato le fondamenta dell'architettura **Dynamic Proxy Multi-Room**, introducendo importanti evoluzioni architetturali:
+Inherited from the pioneering work of the *GreenGrassBlueOcean* project (*MyHOME_SoundDiffusion* by bboykaos), we adopted the core principles of the **Dynamic Proxy Multi-Room** architecture while introducing several key architectural evolutions:
 
 ### A. Dynamic Proxy Decoder Pool (`decoder_pool.py`)
-* **Concetto**: Spesso in una casa domotica BTicino gli streamer moderni (es. Amazon Echo Dot, WiiM Mini, Linkplay, Raspberry HiFiBerry) sono in numero inferiore rispetto alle stanze cablate con la filodiffusione (ad esempio 1 o 2 streamer collegati agli ingressi AUX 2 e AUX 3 della matrice F441 per servire 5 o più zone).
-* **Funzionamento**: Quando una stanza (es. Camera o Bagno) avvia una riproduzione multimediale (Spotify, Music Assistant, radio streaming via URL o servizio `play_media`), l'integrazione:
-  1. Richiede un decoder libero al `DecoderPool`.
-  2. Commuta automaticamente la matrice audio fisica BTicino sull'ingresso AUX corrispondente al decoder assegnato.
-  3. Accende la zona amplificatore della stanza.
-  4. Risveglia il decoder esterno se era in standby o spento.
-  5. Inoltra il flusso audio e i metadati al decoder.
-  6. Quando la stanza si spegne, il decoder viene rilasciato e torna disponibile per le altre stanze.
+* **Concept**: In BTicino home automation setups, modern media streamers (e.g., Amazon Echo Dot, WiiM Mini, Linkplay, Raspberry HiFiBerry) are often fewer in number than the wired rooms equipped with sound diffusion (for example, 1 or 2 streamers connected to AUX 2 and AUX 3 inputs of an F441 matrix to serve 5 or more zones).
+* **Operation**: When a room (e.g., Bedroom or Bathroom) starts media playback (Spotify, Music Assistant, radio stream URL, or `play_media` service), the integration:
+  1. Requests an available decoder from `DecoderPool`.
+  2. Automatically switches the physical BTicino audio matrix to the AUX input corresponding to the assigned decoder.
+  3. Powers on the room's amplifier zone.
+  4. Wakes up the external decoder if it was in standby or powered off.
+  5. Forwards the media stream and metadata to the decoder.
+  6. When playback stops or the room is turned off, the decoder is released back to the pool for other rooms.
 
-### B. Le Nostre Migliorie Rispetto all'Integrazione Originale
-1. **Riscalatura Volume Non Lineare & Gain Staging**:
-   - In BTicino il volume hardware è discreto su **31 passi** (`1` = minimo udibile, `31` = massimo volume).
-   - In Home Assistant il volume è un numero decimale continuo da `0.0` a `1.0`.
-   - Abbiamo introdotto una curva di compensazione logaritmica con parametro di **Pre-Gain configurabile**: evita che il decoder esterno saturi l'ingresso analogico della matrice BTicino o che il volume a valori bassi risulti impercettibile.
-2. **Sincronizzazione Bidirezionale Istantanea**:
-   - I controlli di volume dal bilanciere a muro BTicino aggiornano immediatamente lo slider di Home Assistant senza causare loop di retroazione (feedback loops).
-3. **Gestione Fallback e Auto-Preemption**:
-   - Se tutte le sorgenti AUX sono occupate, il sistema segnala chiaramente all'utente l'indisponibilità anziché bloccare il bus OpenWebNet.
-
----
-
-## 2. Guida alla Configurazione del Decoder Pool (Dynamic Proxy)
-
-Per configurare gli streamer esterni collegati agli ingressi AUX della matrice audio:
-
-1. In Home Assistant, andare su **Impostazioni** ➔ **Dispositivi e Servizi** ➔ **MyHome (Modernized)**.
-2. Cliccare su **Configura** (Options Flow) e selezionare la sezione **Configurazione Decoder Pool (Sorgenti Esterne AUX)**.
-3. Impostare i parametri:
-   * **Abilita Decoder Pool**: Selezionare `True`.
-   * **Entità Decoder Primario (AUX 2)**: Selezionare l'entità di Home Assistant corrispondente allo streamer collegato all'ingresso AUX 2 (es. `media_player.echo_dot_di_patrick` o `media_player.wiim_mini`).
-   * **Sorgente Matrice per Decoder Primario**: Impostare `2` (corrispondente all'ingresso fisico AUX 2 della matrice F441).
-   * **Pre-Gain Volume**: Valore di guadagno (consigliato: `0.75` - `0.85` per evitare distorsioni sull'ingresso analogico).
-   * **Entità Decoder Secondario (AUX 3)** *(opzionale)*: Selezionare l'eventuale secondo streamer e la relativa sorgente `3`.
-4. Cliccare su **Invia**: il pool viene ricreato a caldo senza necessità di riavviare Home Assistant.
+### B. Architectural Improvements Over the Original Implementation
+1. **Non-Linear Volume Rescaling & Gain Staging**:
+   - In BTicino hardware, volume is discrete with **31 steps** (`1` = lowest audible, `31` = maximum volume).
+   - In Home Assistant, volume is a continuous float from `0.0` to `1.0`.
+   - Introduced a logarithmic compensation curve with a **configurable Pre-Gain** parameter: prevents external streamers from clipping/saturating the analog input of the BTicino matrix and ensures low volume levels remain clearly audible.
+2. **Instant Bidirectional Synchronization**:
+   - Volume adjustments from physical BTicino in-wall rocker switches immediately update the Home Assistant UI slider without causing feedback loops.
+3. **Graceful Fallback & Availability Handling**:
+   - If all AUX sources are busy, the system clearly alerts the user rather than blocking or stalling the OpenWebNet bus.
 
 ---
 
-## 3. Architettura Audio e Filodiffusione (WHO 22 / WHO 16)
+## 2. Decoder Pool (Dynamic Proxy) Configuration Guide
 
-* **Amplificatori da Incasso H4562 (WHO 22)**: Gestione completa dello stato acceso/spento, volume e sorgente per ogni stanza cablata (indirizzi zonali OpenWebNet del tipo `3#Ambiente#Punto`).
-* **Sistemi Stereo e Monocanale (WHO 16)**: Compatibilità con il comando di selezione sorgente standard BTicino.
-* **Matrice Audio F441**: Commutazione sorgenti con sequenza a 3 trame asincrone verificate per garantire l'apertura corretta dei canali stereo.
+To configure external streamers connected to the AUX inputs of the audio matrix:
 
----
-
-## 4. Sintonizzatore Radio FM F500, RDS e Auto-Deploy Loghi
-
-L'integrazione riconosce nativamente il sintonizzatore centrale BTicino **F500** (indirizzo `2#1`):
-
-1. **Lettura Frequenza e Preset**:
-   * Intercetta in tempo reale le frequenze trasmesse in MHz (es. `*#22*5#2#1*5*1*10150##` ➔ `101.5 MHz`).
-   * Riconosce i preset salvati da **P1** a **P5** (`*#22*2#1*6*Preset##`).
-2. **Auto-Wake sui Preset Radio**:
-   * Se l'altoparlante di una stanza è spento o impostato su un ingresso AUX, cliccando su un preset FM (P1–P5) l'integrazione accende automaticamente l'amplificatore zonale, commuta la matrice su Tuner (`1`) e sintonizza la stazione desiderata in un unico gesto.
-3. **Catalogo RDS Nazionale & Regionale (`radio_catalog.py`)**:
-   * Mappatura automatica delle frequenze FM italiane sulle principali emittenti (RDS, Radio Deejay, RTL 102.5, Radio 105, Radio Nostalgia, Studio Più, ecc.).
-   * Calcolo dinamico degli attributi `media_title`, `media_artist` (es. `Preset P5 • FM Stereo`) e `radio_stazione`.
-4. **Bundling e Auto-Deployment dei 109 Loghi Out-of-the-Box**:
-   * **Zero configurazione manuale per l'utente**: i **109 file grafici** ufficiali (107 PNG trasparenti + cover streaming Amazon e Spotify) sono inclusi direttamente nella cartella `logos/` dell'integrazione.
-   * All'avvio del componente (`_async_ensure_radio_logos` in `__init__.py`), i file mancanti vengono copiati automaticamente e in background in `/config/www/loghi_radio/`, senza mai sovrascrivere eventuali personalizzazioni dell'utente.
-   * **Percorso Web Configurabile (`radio_logos_path`)**: Nelle opzioni del sintonizzatore FM è possibile specificare un percorso personalizzato (default: `/local/loghi_radio`).
-   * **Ricaricamento a caldo della cache**: Ogni modifica alle opzioni svuota e rigenera la cache dei loghi (`RadioCatalog.clear_cache()`), aggiornando i metadati delle entità all'istante.
+1. In Home Assistant, navigate to **Settings** ➔ **Devices & Services** ➔ **MyHome (Modernized)**.
+2. Click **Configure** (Options Flow) and select the section **Decoder Pool Configuration (External AUX Sources)**.
+3. Configure the parameters:
+   * **Enable Decoder Pool**: Select `True`.
+   * **Primary Decoder Entity (AUX 2)**: Select the Home Assistant entity corresponding to the streamer connected to AUX input 2 (e.g., `media_player.echo_dot_living_room` or `media_player.wiim_mini`).
+   * **Matrix Source for Primary Decoder**: Set to `2` (corresponding to physical input AUX 2 on the F441 matrix).
+   * **Volume Pre-Gain**: Gain value (recommended: `0.75` - `0.85` to avoid analog clipping).
+   * **Secondary Decoder Entity (AUX 3)** *(optional)*: Select an optional secondary streamer and its matrix source `3`.
+4. Click **Submit**: the pool is re-instantiated dynamically without requiring a Home Assistant restart.
 
 ---
 
-## 5. Spegnimento Rapido a Singolo Tocco (Fast Turn-Off)
+## 3. Audio & Sound Diffusion Architecture (WHO 22 / WHO 16)
 
-Sui sistemi BTicino con matrice F441 e amplificatori H4562, inviare il semplice comando `*22*0*WHERE##` spesso richiede due click poiché disconnette solo la sorgente o lascia l'amplificatore in pre-standby.
-
-Abbiamo introdotto la sequenza di **spegnimento atomico combinato**:
-1. Invio del telegramma di disconnessione sorgente: `*22*1#4#0*WHERE##`
-2. Breve delay hardware calibrato a **80 millisecondi** per dare tempo al bus SCS di processare la trama.
-3. Invio del telegramma di standby hardware dell'amplificatore: `*22*0#4#0*WHERE##`
-
-**Risultato**: L'altoparlante si spegne istantaneamente e completamente al primo tocco da Home Assistant, senza pop audio e senza richiedere doppie pressioni.
+* **H4562 Flush-Mounted In-Wall Amplifiers (WHO 22)**: Full state management (power, volume, and source selection) for each wired zone (OpenWebNet zone addresses in the format `3#Environment#Point`).
+* **Stereo and Single-Channel Sound Systems (WHO 16)**: Backward-compatible support for standard BTicino source selection commands.
+* **F441 Audio Matrix**: Verified 3-telegram asynchronous switching sequence ensuring reliable channel opening and stereo routing.
 
 ---
 
-## 6. Integrazione Citofonica ed Eventi Ducking (`myhome_intercom_event`)
+## 4. F500 FM Radio Tuner, RDS & Automatic Logo Deployment
 
-L'integrazione intercetta il traffico OpenWebNet relativo alla videocitofonia e alla diffusione sonora:
-* **Audio Ducking su Chiamata Citofonica**:
-  Quando arriva una chiamata esterna o una chiamata intercomunicante, il sistema BTicino abbassa temporaneamente il volume della filodiffusione (`WHO 22` Dimensione `12`). L'integrazione cattura questo evento e scatena sul bus di Home Assistant l'evento **`myhome_intercom_event`** con payload `event: "ducking_start"`.
-* **Ripristino Volume**:
-  Al termine della conversazione viene emesso l'evento `event: "ducking_end"`.
-* **Automazioni possibili**: Questo permette ad Home Assistant di mettere in pausa automaticamente Apple TV, streamer esterni o inviare notifiche luminose senza componenti aggiuntivi.
+The integration natively supports the centralized BTicino **F500** FM tuner module (address `2#1`):
 
----
-
-## 7. Stabilità Gateway, Anti-Flooding e Workaround Socket di Comando
-
-Abbiamo allineato il componente ai fix ufficiali delle release **v1.3.1**, **v1.3.2**, **v1.4.0** e **v1.4.1** di Matteo Mantovanelli, aggiungendo una protezione mirata per il socket:
-
-### A. Anti-Flooding Diagnostica Attuatori (da v1.3.1) - Risoluzione Doppio Click sulle Luci
-* **Problema originario**: I frame periodici automatici degli attuatori (`WHO 1001` per luci e `WHO 1004` per termoregolazione) facevano accodare decine di query di stato anche per dispositivi e canali inesistenti. I comandi manuali dell'utente finivano in coda provocando ritardi fino a 2 minuti o mancata accensione al primo click.
-* **Soluzione**:
-  1. `_is_configured_device`: Le richieste di stato vengono inoltrate solo se il dispositivo è realmente configurato in Home Assistant.
-  2. Throttling temporale di **60 secondi** massimo per ciascun indirizzo.
-  3. **Zero retries** per le query di stato: se una richiesta di lettura fallisce, viene eliminata all'istante senza bloccare i comandi utente.
-
-### B. Risoluzione Crash Loop su `OWNSignaling` (da v1.3.2)
-* I frame tecnici di servizio (ACK `*#*1##`, NACK `*#*0##`, token SHA) sul canale di ascolto vengono filtrati all'ingresso, evitando l'errore fatale `AttributeError: 'OWNSignaling' object has no attribute '_who'` che faceva disconnettere e riconnettere il socket ogni secondo.
-
-### C. Timing Bus SCS Ottimizzati per MyHomeServer1 (da v1.3.2)
-* Timeout di scansione portato a 200ms con pausa inter-comando di 30ms, garantendo stabilità sul bus a 9600 baud.
-
-### D. Controllo Percentuale Nativo Tapparelle (da v1.4.0 e v1.4.1)
-* Gestione virtuale precisa del tempo di corsa per serrande/tapparelle (0-100%) con filtro antirimbalzo sui frame transitori degli attuatori.
-
-### E. Nostro Workaround Mirato sul Socket di Comando (`ownd/connection.py`)
-* **Problema**: I gateway BTicino chiudono silenziosamente la sessione comandi dopo 2 minuti di inattività. In assenza di timeout, la funzione `readuntil()` di Python rimaneva congelata per sempre in attesa dell'ACK, bloccando tutti i comandi successivi.
-* **Soluzione**: Applicato un `asyncio.wait_for(..., timeout=3.0)` su `readuntil()` nel metodo `send()`. Se il gateway non risponde entro 3 secondi, il socket stale viene abbattuto e riaperto in 50ms, ritrasmettendo immediatamente il comando.
-* **Eliminazione query non supportata `*#22*0##`**: Rimosso il tentativo di discovery globale della filodiffusione al riavvio, che generava l'errore `Could not send message *#22*0##` sui gateway MHS1.
+1. **Frequency & Preset Tracking**:
+   * Intercepts transmitted frequencies in real time in MHz (e.g., `*#22*5#2#1*5*1*10150##` ➔ `101.5 MHz`).
+   * Recognizes stored presets from **P1** to **P5** (`*#22*2#1*6*Preset##`).
+2. **Auto-Wake on Radio Presets**:
+   * If a room amplifier is off or set to an AUX input, tapping an FM preset (P1–P5) automatically turns on the zone amplifier, switches the matrix to Tuner (`1`), and tunes to the station in a single operation.
+3. **National & Regional RDS Station Catalog (`radio_catalog.py`)**:
+   * Automatic mapping of FM frequencies to station metadata (RDS, Radio Deejay, RTL 102.5, Radio 105, Radio Nostalgia, Studio Più, etc.).
+   * Dynamic calculation of `media_title`, `media_artist` (e.g., `Preset P5 • FM Stereo`), and `radio_stazione` attributes.
+4. **Bundling and Auto-Deployment of 109 Logos Out-of-the-Box**:
+   * **Zero manual configuration**: **109 graphic assets** (107 transparent PNG station logos + Amazon and Spotify streaming cover art) are bundled directly inside the `logos/` directory of the integration.
+   * On component startup (`_async_ensure_radio_logos` in `__init__.py`), missing files are automatically deployed in the background to `/config/www/loghi_radio/`, preserving any existing user customizations.
+   * **Configurable Web Path (`radio_logos_path`)**: FM tuner options allow setting a custom static URL path (default: `/local/loghi_radio`).
+   * **Dynamic Cache Reloading**: Saving integration options clears and reloads the logo cache (`RadioCatalog.clear_cache()`), instantly updating entity metadata.
 
 ---
 
-## 8. Scansione Attiva del Bus per la Diffusione Sonora (WHO 22)
+## 5. Single-Tap Fast Turn-Off
 
-In precedenza, i dispositivi di diffusione sonora BTicino richiedevano lo sniffing passivo del bus per essere scoperti e aggiunti. Abbiamo implementato la scansione attiva diretta per WHO 22 (`discovery.py`):
+On BTicino installations with F441 matrices and H4562 amplifiers, sending the simple command `*22*0*WHERE##` often required two taps because it only unlinked the active source or left the amplifier in pre-standby.
 
-1. **Interrogazione Dimensionale Mirata**:
-   * Nel protocollo OpenWebNet, le interrogazioni generiche `*#22*WHERE##` ricevono sempre NACK (`*#*0##`).
-   * La funzione `async_scan_sound_who22` esegue query dimensionali specifiche:
-     - **Sorgenti Tuner FM (`2#S`)**: Interrogazione con Dimensione 6 (`*#22*2#S*6##`) per $S \in [1..4]$.
-     - **Punti Sonori / Amplificatori (`3#A#P`)**: Interrogazione con Dimensione 12 (Volume `*#22*3#A#P*12##`) per Ambienti $A \in [1..9]$ e Punti sonori $P \in [1..9]$.
-2. **Scansione Silenziosa e Non Invasiva**:
-   * Poiché si utilizzano richieste di stato dimensionali (`*#`), i dispositivi rispondono via bus comunicando i parametri memorizzati **senza attivare gli amplificatori, senza commutare relè e senza emettere alcun suono**.
-   * Non è richiesto che i dispositivi siano accesi: il microprocessore di bordo a 27V risponde anche in standby.
-3. **Integrazione Sequenziale Sicura**:
-   * La scansione audio viene eseguita in coda alle luci, tapparelle e termoregolazione, senza impatto sulle scansioni esistenti.
-   * I dispositivi rilevati confluiscono automaticamente nella piattaforma `media_player`.
-4. **Interfaccia Utente e Tempi Realistici**:
-   * Aggiornato il testo esplicativo nel Config Flow (in italiano, inglese, francese e olandese) con stima realistica di **25–35 secondi**.
+We introduced an **atomic combined power-off sequence**:
+1. Source disconnection telegram: `*22*1#4#0*WHERE##`
+2. Calibrated hardware delay of **80 milliseconds** allowing the SCS bus to process the frame.
+3. Amplifier hardware standby telegram: `*22*0#4#0*WHERE##`
+
+**Result**: The speaker turns off instantly and cleanly on the first tap from Home Assistant, without audio pops and without requiring a second press.
 
 ---
 
-## 9. Zero-Traffic Smart Reconnect e Risveglio Sincrono Radio
+## 6. Intercom Integration & Ducking Events (`myhome_intercom_event`)
 
-Per eliminare ogni ritardo o percezione di mancata risposta al primo comando inviato dopo ore di inattività o dopo un riavvio di Home Assistant:
+The integration monitors OpenWebNet bus traffic for intercom and sound diffusion interactions:
+* **Audio Ducking on Incoming Calls**:
+  When an incoming door call or intercom conversation begins, the BTicino system temporarily ducks the volume (`WHO 22` Dimension `12`). The integration intercepts this frame and fires a **`myhome_intercom_event`** on the Home Assistant event bus with payload `event: "ducking_start"`.
+* **Volume Restore**:
+  Upon conversation termination, `event: "ducking_end"` is dispatched.
+* **Automation Opportunities**: Enables automations to pause Apple TVs, mute external media players, or flash smart lights without extra hardware.
+
+---
+
+## 7. Gateway Stability, Anti-Flooding & Command Socket Protections
+
+We aligned the component with upstream releases **v1.3.1**, **v1.3.2**, **v1.4.0**, and **v1.4.1** by Matteo Mantovanelli, and introduced essential socket protections:
+
+### A. Actuator Diagnostic Anti-Flooding (from v1.3.1) - Double-Click Light Fix
+* **Original Issue**: Periodic broadcast frames from actuators (`WHO 1001` for lights and `WHO 1004` for HVAC) queued dozens of state queries for non-existent channels. User commands were delayed by up to 2 minutes or ignored on first click.
+* **Resolution**:
+  1. `_is_configured_device`: State queries are only sent for devices actually configured in Home Assistant.
+  2. Rate limiting of **60 seconds** maximum per address.
+  3. **Zero retries** for diagnostic status queries: failed requests are dropped immediately to avoid stalling user commands.
+
+### B. `OWNSignaling` Crash Loop Resolution (from v1.3.2)
+* Low-level signaling frames (ACK `*#*1##`, NACK `*#*0##`, SHA tokens) received on the monitor channel are filtered at the ingress stage, preventing the fatal `AttributeError: 'OWNSignaling' object has no attribute '_who'` that caused the socket to disconnect and reconnect every second.
+
+### C. Optimized SCS Bus Timing for MyHomeServer1 (from v1.3.2)
+* Scan timeout adjusted to 200ms with a 30ms inter-command pause, ensuring reliable communication on the 9600-baud SCS bus.
+
+### D. Native Percentage Cover Control (from v1.4.0 & v1.4.1)
+* Precise virtual run-time calculation for covers/shutters (0-100%) with debounce filtering against transient actuator frames.
+
+### E. Command Socket Timeout Workaround (`ownd/connection.py`)
+* **Problem**: BTicino gateways silently terminate command sessions after ~2 minutes of inactivity. Without a read timeout, Python's `readuntil()` would hang indefinitely waiting for an ACK, blocking all subsequent commands.
+* **Solution**: Applied an `asyncio.wait_for(..., timeout=3.0)` on `readuntil()` within the `send()` method. If the gateway fails to acknowledge within 3 seconds, the stale socket is closed and re-established within 50ms, immediately retrying the command.
+* **Removal of Unsupported Query `*#22*0##`**: Eliminated the legacy global sound discovery query at boot, which caused `Could not send message *#22*0##` errors on MyHomeServer1 gateways.
+
+---
+
+## 8. Active Bus Scanning for Sound Diffusion (WHO 22)
+
+Previously, sound diffusion devices required passive bus listening to be discovered. We implemented direct active bus scanning for WHO 22 (`discovery.py`):
+
+1. **Targeted Dimensional Queries**:
+   * In OpenWebNet, generic state requests `*#22*WHERE##` always return NACK (`*#*0##`).
+   * The `async_scan_sound_who22` function performs targeted dimensional queries:
+     - **FM Tuner Sources (`2#S`)**: Dimension 6 query (`*#22*2#S*6##`) for sources $S \in [1..4]$.
+     - **Zone Amplifiers (`3#A#P`)**: Dimension 12 query (Volume `*#22*3#A#P*12##`) for Environments $A \in [1..9]$ and Sound Points $P \in [1..9]$.
+2. **Silent & Non-Intrusive Scanning**:
+   * Using read-only dimensional status requests (`*#`), devices respond with stored parameters **without turning on amplifiers, without clicking relays, and without emitting sound**.
+   * Devices do not need to be actively playing: the 27V bus microcontroller responds even while in standby.
+3. **Safe Sequential Execution**:
+   * Sound scanning runs sequentially after lights, covers, and climate, with zero impact on existing discovery pipelines.
+   * Discovered devices automatically register under the `media_player` platform.
+4. **User-Friendly Feedback**:
+   * Updated the Config Flow description across English, Italian, French, and Dutch with an accurate scan estimate of **25–35 seconds**.
+
+---
+
+## 9. Zero-Traffic Smart Reconnect & Synchronous Radio Wake-Up
+
+To eliminate delays and unresponsive first commands after prolonged inactivity or Home Assistant restarts:
 
 ### A. Zero-Traffic Smart Reconnect (`gateway.py`)
-* **Problema**: Il gateway MyHome Server 1 chiude silenziosamente la sessione comandi TCP dopo circa 120 secondi di inattività. Al primo comando dopo lungo silenzio, il socket vecchio attendeva i 3 secondi di timeout prima di accorgersi della chiusura, aggiungendo poi 1 secondo di backoff prima di riconnettersi.
-* **Soluzione Zero-Traffic**:
-  - Il worker traccia il tempo dell'ultimo comando con soglia di sicurezza a **90 secondi** (`IDLE_TIMEOUT_THRESHOLD = 90.0`).
-  - Se il socket è rimasto inattivo per più di 90 secondi (o al primo comando dopo il boot o manutenzioni), il worker **rinnova preventivamente la sessione in circa 100 millisecondi** prima di spedire il pacchetto.
-  - **Nessun ping periodico**: quando la casa dorme, non viaggia alcun byte sulla rete LAN né sul bus SCS, azzerando il rischio di saturazione buffer o collisioni.
-  - **Zero Backoff su Primo Errore**: se si verifica un errore imprevisto, il backoff al primo tentativo utente è impostato a 0 per ritrasmettere subito.
+* **Problem**: MyHomeServer1 gateways silently close idle command TCP sockets after ~120 seconds. Upon the first user command after idle periods, the stale socket spent 3 seconds timing out before attempting a reconnect with a 1-second backoff.
+* **Zero-Traffic Solution**:
+  - The worker monitors command timestamps with a safety margin of **90 seconds** (`IDLE_TIMEOUT_THRESHOLD = 90.0`).
+  - If the connection has been idle for more than 90 seconds (or on the first command after boot/reload), the worker **proactively renews the session in ~100ms** before dispatching the command frame.
+  - **No Periodic Polling**: While the home is idle, zero bytes are transmitted across the LAN and SCS bus, completely avoiding bus traffic or buffer overruns.
+  - **Zero Backoff on First Attempt**: If an unexpected disconnection occurs, the first user retry has 0s backoff for immediate dispatch.
 
-### B. Risveglio Sincrono della Radio in Accensione (`media_player.py`)
-* Nel metodo `async_turn_on()`:
-  - Quando si accende una stanza impostata su sorgente Radio (`"Radio FM (Tuner)"`) e nessun'altra stanza sta già diffondendo la radio, l'integrazione esegue la sequenza completa:
-    1. Accensione dell'amplificatore zonale di stanza (`*22*1#4#7*WHERE##`).
-    2. Instradamento della matrice hardware su Sorgente 1 (`*22*2#4#7*5#2#1##`).
-    3. Richiamo del preset/frequenza sul modulo FM F500 (`*#22*2#1*#6*<preset>##`).
-  - L'audio parte **immediatamente fin dal primo tocco**, senza necessitare di cambi stazione o comandi secondari.
-
----
-
-## 10. Allineamento Formale al Protocollo OpenWebNet (Verificato con `openwebnet-mcp`)
-
-Grazie all'integrazione del server formale **`openwebnet-mcp`** (basato sulle specifiche PDF e tabelle dimensionali ufficiali BTicino/Legrand), sono state corrette diverse discrepanze e disallineamenti storici nel gestore messaggi di basso livello (`ownd/message.py`):
-
-### A. Tapparelle e Automazione (WHO 2)
-* **Correzione Dimensione 10 vs 11**: Il metodo `set_shutter_level` utilizzava erroneamente `*#2*WHERE*#11#001*LEVEL##` (che nel protocollo Legrand è la dimensione 11 per l'inclinazione lamelle frangisole). È stato allineato alla **Dimensione 10** (`*#2*WHERE*#10*LEVEL##`), che governa l'apertura percentuale assoluta (0–100%).
-* **Introduzione Metodo `set_slat_angle`**: La gestione dell'inclinazione veneziane/frangisole è stata separata in un metodo dedicato conforme alla Dimensione 11.
-* **Supporto Ibrido in `cover.py`**: Per le tapparelle con attuatori avanzati (`advanced: true`), Home Assistant invia ora la Dimensione 10 hardware istantanea, mantenendo il fallback a calcolo virtuale su tempo di corsa per i relè standard.
-
-### B. Diffusione Sonora Tradizionale (WHO 16)
-* **Correzione Telegrammi ON / OFF**: Il metodo `OWNSoundCommand.turn_on` inviava `*16*3*WHERE##` e `turn_off` inviava `*16*13*WHERE##`. Sono stati allineati ai codici standard **`WHAT = 1`** (`*16*1*WHERE##`) e **`WHAT = 0`** (`*16*0*WHERE##`), garantendo coerenza sia in invio che in ricezione con `media_player.py`.
-
-### C. Pulsanti Scenari CEN (WHO 15)
-* **Risoluzione Bug Inversione Tasto / Azione**: Nei frame standard CEN (`*15*WHAT*WHERE#BUTTON##`), il pulsante fisico è contenuto in `where_param` e il tipo di pressione in `what` (1=breve, 0=inizio lunga, 2=fine lunga, 3=heartbeat). Il parser `OWNCENEvent` estrae ora correttamente il numero reale del pulsante e la modalità di pressione, garantendo la compatibilità con i Blueprint di automazione.
-
-### D. Chiusura Sessione Video (WHO 7)
-* **Standardizzazione Terminazione Video**: Il comando `close_video` in `OWNAVCommand` è stato corretto dalla sintassi irregolare `*7*9**##` alla sintassi standard **`*7*0*WHERE##`** (`WHAT = 0`).
-
-### E. Standardizzazione Fast Turn-Off in `OWNFilodiffusioneCommand` (WHO 22)
-* Allineata la classe comandi `OWNFilodiffusioneCommand` per riflettere i telegrammi verificati `1#4#0` (disconnessione sorgente) e `0#4#0` (standby amplificatore).
+### B. Synchronous Radio Wake-Up on Power-On (`media_player.py`)
+* In the `async_turn_on()` method:
+  - When turning on a room set to the Radio source (`"Radio FM (Tuner)"`) and no other room is actively streaming radio, the integration executes the full synchronized sequence:
+    1. Powers on the room amplifier (`*22*1#4#7*WHERE##`).
+    2. Routes matrix input to Source 1 (`*22*2#4#7*5#2#1##`).
+    3. Triggers the preset/frequency recall on the F500 FM tuner (`*#22*2#1*#6*<preset>##`).
+  - Sound starts **immediately on the first tap**, without requiring secondary station changes.
 
 ---
 
-## 11. Riconoscimento Pressione Fisica Frutti a Muro H4562 & Servizi Globali
+## 10. Formal Alignment with OpenWebNet Specifications (Verified via `openwebnet-mcp`)
 
-### A. Riconoscimento Pressione Tasti Locali sui Moduli Audio H4562 (`media_player.py`)
-* **Problema riscontrato**: Accendendo fisicamente un punto sonoro dal tasto basculante del frutto da incasso H4562, l'entità in Home Assistant rimaneva nello stato `OFF` o `IDLE` finché l'utente non interagiva da plancia Lovelace.
-* **Analisi dei frame OpenWebNet**: L'azionamento manuale da frutto non genera il canonico telegramma di comando `*22*1*WHERE##`, bensì invia una sequenza di eventi fisici:
-  - Notifica pressione tasto locale: `*22*9*5#WHERE##`
-  - Notifica aggancio sorgente di default: `*22*22#4#A*5#WHERE##`
-* **Soluzione**: Inserito nel gestore eventi di `media_player.py` il pattern matching su tali frame fisici. Al tocco del pulsante a parete, l'entità Home Assistant si commuta immediatamente su **`Riproduzione`** (`PLAYING`) e interroga asincronamente la matrice audio per mostrare il volume e la sorgente corretti.
+Leveraging the formal **`openwebnet-mcp`** protocol server (grounded in official BTicino/Legrand specification manuals and dimension tables), several legacy syntax discrepancies in the low-level parser (`ownd/message.py`) were corrected:
 
-### B. Fix Robustezza Gateway Lookup nei Servizi Globali (`__init__.py`)
-* Nei servizi di diagnostica e configurazione (`myhome.send_message`, `myhome.scan_bus`, `myhome.export_to_yaml`), il recupero del gateway predefinito quando non specificato nel payload è stato reso resiliente: ora filtra rigorosamente le sole istanze `CONF_ENTITY` attive, evitando conflitti con flag interni del dizionario `hass.data[DOMAIN]`.
+### A. Shutters & Automation (WHO 2)
+* **Correction of Dimension 10 vs 11**: The `set_shutter_level` method previously used `*#2*WHERE*#11#001*LEVEL##` (which in Legrand specifications is Dimension 11 for Venetian blind slat tilt). It has been corrected to **Dimension 10** (`*#2*WHERE*#10*LEVEL##`), which controls absolute percentage position (0–100%).
+* **Dedicated `set_slat_angle` Method**: Venetian slat angle control has been extracted into a separate, dedicated method compliant with Dimension 11.
+* **Hybrid Support in `cover.py`**: For covers with advanced actuators (`advanced: true`), Home Assistant sends the instant hardware Dimension 10 command, while maintaining virtual run-time calculation as fallback for standard relays.
+
+### B. Traditional Sound Diffusion (WHO 16)
+* **Standard ON / OFF Commands**: The `OWNSoundCommand.turn_on` method sent `*16*3*WHERE##` and `turn_off` sent `*16*13*WHERE##`. These have been aligned with standard OpenWebNet codes **`WHAT = 1`** (`*16*1*WHERE##`) and **`WHAT = 0`** (`*16*0*WHERE##`), ensuring bidirectional consistency with `media_player.py`.
+
+### C. CEN Scenario Buttons (WHO 15)
+* **Button / Action Inversion Bug Fix**: In standard CEN frames (`*15*WHAT*WHERE#BUTTON##`), the physical button number resides in `where_param` and the press type in `what` (1=short press, 0=start long, 2=end long, 3=heartbeat). The `OWNCENEvent` parser now correctly extracts the physical button number and press mode, restoring full compatibility with automation Blueprints.
+
+### D. Video Session Termination (WHO 7)
+* **Standardized Video Teardown**: The `close_video` command in `OWNAVCommand` was corrected from irregular syntax `*7*9**##` to standard **`*7*0*WHERE##`** (`WHAT = 0`).
+
+### E. Standardized Fast Turn-Off in `OWNFilodiffusioneCommand` (WHO 22)
+* Updated the `OWNFilodiffusioneCommand` class to include verified telegrams `1#4#0` (source unlink) and `0#4#0` (amplifier standby).
+
+---
+
+## 11. Physical Keypress Detection on H4562 In-Wall Modules & Global Services
+
+### A. Physical Keypress Recognition on H4562 Audio Modules (`media_player.py`)
+* **Observed Behavior**: Manually turning on an in-wall H4562 amplifier via its rocker switch left the Home Assistant entity in `OFF` or `IDLE` state until an interaction occurred from the Lovelace UI.
+* **OpenWebNet Frame Analysis**: Physical activation on the in-wall module does not emit a standard `*22*1*WHERE##` command, but generates a specific hardware event sequence:
+  - Local keypress notification: `*22*9*5#WHERE##`
+  - Default source connection notification: `*22*22#4#A*5#WHERE##`
+* **Resolution**: Added pattern matching for these hardware event frames in the `media_player.py` event handler. Tapping the physical wall switch immediately transitions the Home Assistant entity to **`Playing`** (`PLAYING`) and asynchronously queries the audio matrix for current volume and source.
+
+### B. Gateway Lookup Hardening in Global Services (`__init__.py`)
+* Diagnostic and configuration services (`myhome.send_message`, `myhome.scan_bus`, `myhome.export_to_yaml`) were hardened: default gateway lookup now strictly filters active `CONF_ENTITY` instances, preventing conflicts with internal state keys in `hass.data[DOMAIN]`.
