@@ -239,6 +239,7 @@ class StationInfo:
     frequency: str         # Frequenza nativa (es. '93.3 MHz')
     logo_url: Optional[str] = None
     is_known: bool = False
+    preset_num: Optional[int] = None
 
 
 class RadioCatalog:
@@ -427,6 +428,7 @@ class RadioCatalog:
                 frequency=display_freq,
                 logo_url=logo,
                 is_known=True,
+                preset_num=preset_num,
             )
 
         # Emittente non riconosciuta nel catalogo: mostra la frequenza nativa
@@ -449,4 +451,5 @@ class RadioCatalog:
             frequency=display_freq,
             logo_url=None,
             is_known=False,
+            preset_num=preset_num,
         )

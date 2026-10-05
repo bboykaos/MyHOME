@@ -216,3 +216,19 @@ Leveraging the formal **`openwebnet-mcp`** protocol server (grounded in official
 
 ### B. Gateway Lookup Hardening in Global Services (`__init__.py`)
 * Diagnostic and configuration services (`myhome.send_message`, `myhome.scan_bus`, `myhome.export_to_yaml`) were hardened: default gateway lookup now strictly filters active `CONF_ENTITY` instances, preventing conflicts with internal state keys in `hass.data[DOMAIN]`.
+
+---
+
+## 12. Bus-Primary Tuner Frequency & Real-Time Preset Matching (WHO 22 / F500)
+
+### A. Bus-Primary Frequency & Accurate Preset Resolution (`media_player.py`)
+* **Real-time Bus Priority**: Frequency reporting now strictly prioritizes the live frequency received from the OpenWebNet bus (`TUNER_STATE["freq"]` / `self._tuner_freq`), rather than assuming a preset's stale memory.
+* **Elimination of Untuned Preset Fallback Bug**: Fixed an issue where an untuned or empty preset slot (e.g. P2) inherited the residual frequency and station title of a previously tuned station (e.g. Radio 105 / P3).
+* **Dynamic Preset Matching**: The active preset number is dynamically resolved by verifying if the bus frequency matches any entry in the stored preset bank (`TUNER_PRESETS`).
+
+### B. Logo and Metadata Resolution for Free / Unsaved Frequencies (`radio_catalog.py`)
+* **Universal Catalog Lookup**: Station names and official station logos from the local directory (`/local/loghi_radio/`) are now resolved for all valid frequencies detected on the bus, even when the station is tuned manually or via Seek Up/Down and not saved in preset slots P1–P5.
+* **Added `preset_num` Field to `StationInfo`**: Enables seamless distinction between preset broadcasts (`P<N>: <Frequency> - <Station>`) and manual tuning (`<Frequency> - <Station>`).
+
+### C. Dimension 11 Preset Bank Memory Support
+* Added parsing for Dimension 11 telegrams (`*#22*5#2#1*11*1*<FREQ>*<PRESET>##`) broadcast by the F500 tuner hardware, preventing accidental corruption of preset memories during manual frequency sweeps or state restore.

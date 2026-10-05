@@ -216,3 +216,19 @@ Grazie all'integrazione del server formale **`openwebnet-mcp`** (basato sulle sp
 
 ### B. Fix Robustezza Gateway Lookup nei Servizi Globali (`__init__.py`)
 * Nei servizi di diagnostica e configurazione (`myhome.send_message`, `myhome.scan_bus`, `myhome.export_to_yaml`), il recupero del gateway predefinito quando non specificato nel payload è stato reso resiliente: ora filtra rigorosamente le sole istanze `CONF_ENTITY` attive, evitando conflitti con flag interni del dizionario `hass.data[DOMAIN]`.
+
+---
+
+## 12. Priorità Frequenza Bus e Risoluzione Dinamica Preset (WHO 22 / F500)
+
+### A. Priorità Assoluta alla Frequenza del Bus ed Eliminazione Disallineamenti (`media_player.py`)
+* **Priorità Real-time al Bus**: L'indicazione della frequenza ora riflette fedelmente e prioritariamente quella effettiva letta dal bus OpenWebNet (`TUNER_STATE["freq"]` / `self._tuner_freq`), evitando assunzioni errate sui preset.
+* **Risoluzione del Bug Fallback Preset Non Sintonizzati**: Risolta l'anomalia per cui la selezione di un preset non memorizzato (es. P2) ereditava la frequenza e il nome dell'emittente precedente (es. Radio 105 su P3).
+* **Corrispondenza Dinamica dei Preset**: L'indice del preset attivo viene verificato e validato confrontando la frequenza reale del bus con il banco memorie effettivo (`TUNER_PRESETS`).
+
+### B. Risoluzione Loghi ed Emittenti per Frequenze Libere e Non Salvate (`radio_catalog.py`)
+* **Lookup Universale da Catalogo**: Il nome dell'emittente e il logo ufficiale da archivio locale (`/local/loghi_radio/`) vengono recuperati per qualsiasi frequenza rilevata dal sintonizzatore, inclusa la sintonia manuale e la ricerca automatica (Seek Up/Down), anche per stazioni non registrate nelle memorie P1–P5.
+* **Campo `preset_num` in `StationInfo`**: Distingue automaticamente la visualizzazione tra emittenti su preset (`P<N>: <Frequenza> - <Emittente>`) e sintonia libera (`<Frequenza> - <Emittente>`).
+
+### C. Supporto Nativo Dimensione 11 per Memorie Preset
+* Introdotto il gestore della Dimensione 11 (`*#22*5#2#1*11*1*<FREQ>*<PRESET>##`) inviata dal modulo F500, garantendo la fedele sincronizzazione dei preset memorizzati nell'hardware ed evitando sovrascritture accidentali durante cambi frequenza o riavvii.

@@ -445,24 +445,32 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 self._volume_level = attrs["volume_level"]
             if "media_title" in attrs and attrs["media_title"]:
                 self._media_title = attrs["media_title"]
-            if "radio_preset" in attrs and attrs["radio_preset"]:
-                self._tuner_preset = attrs["radio_preset"]
-                TUNER_STATE["preset"] = attrs["radio_preset"]
-            if "radio_frequenza" in attrs and attrs["radio_frequenza"]:
-                self._tuner_freq = attrs["radio_frequenza"]
-                TUNER_STATE["freq"] = attrs["radio_frequenza"]
-                if self._tuner_preset and 1 <= self._tuner_preset <= 5 and TUNER_PRESETS.get(self._tuner_preset) is None:
-                    TUNER_PRESETS[self._tuner_preset] = self._tuner_freq
             if "radio_presets" in attrs and isinstance(attrs["radio_presets"], dict):
                 for p_k, p_val in attrs["radio_presets"].items():
                     try:
                         p_num = int(p_k.replace("P", ""))
-                        if 1 <= p_num <= 5 and p_val and "MHz" in str(p_val) and TUNER_PRESETS.get(p_num) is None:
+                        if 1 <= p_num <= 5 and p_val and "MHz" in str(p_val):
                             match = re.search(r"(\d+\.?\d*)\s*MHz", str(p_val))
                             if match:
                                 TUNER_PRESETS[p_num] = f"{float(match.group(1)):.1f} MHz"
                     except Exception:
                         pass
+            if "radio_frequenza" in attrs and attrs["radio_frequenza"]:
+                self._tuner_freq = attrs["radio_frequenza"]
+                TUNER_STATE["freq"] = attrs["radio_frequenza"]
+            if "radio_preset" in attrs and attrs["radio_preset"]:
+                saved_p = attrs["radio_preset"]
+                if saved_p in TUNER_PRESETS and TUNER_PRESETS[saved_p] == self._tuner_freq:
+                    self._tuner_preset = saved_p
+                    TUNER_STATE["preset"] = saved_p
+                else:
+                    matched_p = None
+                    for p_num, p_freq in TUNER_PRESETS.items():
+                        if p_freq and p_freq == self._tuner_freq:
+                            matched_p = p_num
+                            break
+                    self._tuner_preset = matched_p
+                    TUNER_STATE["preset"] = matched_p
             if "active_decoder" in attrs and attrs["active_decoder"]:
                 self._active_decoder = attrs["active_decoder"]
             elif self._source and "Radio" not in self._source:
@@ -557,11 +565,23 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         enable_logos = options.get(CONF_RADIO_ENABLE_LOGOS, DEFAULT_RADIO_ENABLE_LOGOS)
         logos_path = options.get(CONF_RADIO_LOGOS_PATH, DEFAULT_RADIO_LOGOS_PATH)
 
-        preset_to_use = TUNER_STATE.get("preset") or self._tuner_preset
-        if preset_to_use and preset_to_use in TUNER_PRESETS and TUNER_PRESETS[preset_to_use]:
-            freq_str = TUNER_PRESETS[preset_to_use]
-        else:
-            freq_str = TUNER_STATE.get("freq") or self._tuner_freq
+        freq_str = TUNER_STATE.get("freq") or self._tuner_freq
+        active_preset = TUNER_STATE.get("preset") or self._tuner_preset
+
+        preset_to_use = None
+        if freq_str:
+            # Verifica se la frequenza letta dal bus corrisponde ad uno dei preset memorizzati
+            for p_num, p_freq in TUNER_PRESETS.items():
+                if p_freq and p_freq == freq_str:
+                    preset_to_use = p_num
+                    break
+            # Se la frequenza coincide con il preset attivo corrente confermato
+            if preset_to_use is None and active_preset and TUNER_PRESETS.get(active_preset) == freq_str:
+                preset_to_use = active_preset
+        elif active_preset and TUNER_PRESETS.get(active_preset):
+            # Se la frequenza del bus non è ancora arrivata, ma c'è un preset attivo con frequenza nota
+            preset_to_use = active_preset
+            freq_str = TUNER_PRESETS.get(active_preset)
 
         info = RadioCatalog.resolve_station(
             freq_str=freq_str,
@@ -728,7 +748,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
     def media_album_name(self) -> str | None:
         if self._source in ["Radio FM (Tuner)", "7"]:
             info = self._get_radio_info()
-            active_p = TUNER_STATE.get("preset") or self._tuner_preset
+            active_p = getattr(info, "preset_num", None)
             p_str = f"Preset P{active_p}" if active_p else "Sintonizzazione Manuale"
             if info.is_known:
                 return f"{p_str} • {info.name}"
@@ -755,6 +775,48 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                         )
                 # 2. Decoder diretto (Amazon Music su Echo Dot, Arylic, WiiM, ecc.)
                 dec_state = self.hass.states.get(self._active_decoder)
+                if dec_state:
+                    pic = (
+                        dec_state.attributes.get("entity_picture_local")
+                        or dec_state.attributes.get("entity_picture")
+                    )
+                    if pic and "e3b0c442" not in pic:
+                        return pic
+
+                # 3. Fallback DLNA gemello (accoppiamento per unique_id hardware o friendly_name)
+                if dec_state:
+                    # Tentativo A: Matching hardware tramite Unique ID (stesso UUID Arylic, es. FF31F09EF5C1EE8E)
+                    try:
+                        from homeassistant.helpers import entity_registry as er
+                        ent_reg = er.async_get(self.hass)
+                        active_entry = ent_reg.async_get(self._active_decoder)
+                        if active_entry and active_entry.unique_id:
+                            clean_hw_uuid = active_entry.unique_id.replace("uuid:", "").replace("-", "").upper()
+                            for candidate_entry in ent_reg.entities.values():
+                                if candidate_entry.domain == "media_player" and candidate_entry.entity_id != self._active_decoder:
+                                    c_uid = (candidate_entry.unique_id or "").replace("uuid:", "").replace("-", "").upper()
+                                    if clean_hw_uuid and (clean_hw_uuid in c_uid or c_uid in clean_hw_uuid):
+                                        cand_state = self.hass.states.get(candidate_entry.entity_id)
+                                        if cand_state:
+                                            cand_pic = cand_state.attributes.get("entity_picture_local") or cand_state.attributes.get("entity_picture")
+                                            if cand_pic and "e3b0c442" not in cand_pic:
+                                                return cand_pic
+                    except Exception:
+                        pass
+
+                    # Tentativo B: Suffisso standard o Friendly Name
+                    target_fname = dec_state.attributes.get("friendly_name")
+                    for s in self.hass.states.async_all("media_player"):
+                        if s.entity_id in (f"{self._active_decoder}_2", f"{self._active_decoder}_dlna"):
+                            candidate_pic = s.attributes.get("entity_picture_local") or s.attributes.get("entity_picture")
+                            if candidate_pic and "e3b0c442" not in candidate_pic:
+                                return candidate_pic
+                        elif target_fname and s.attributes.get("friendly_name") == target_fname and s.entity_id != self._active_decoder:
+                            if not s.entity_id.startswith("media_player.filodiffusione_"):
+                                candidate_pic = s.attributes.get("entity_picture_local") or s.attributes.get("entity_picture")
+                                if candidate_pic and "e3b0c442" not in candidate_pic:
+                                    return candidate_pic
+
                 if dec_state:
                     return (
                         dec_state.attributes.get("entity_picture_local")
@@ -836,9 +898,11 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         }
         if self._source in ["Radio FM (Tuner)", "7"]:
             info = self._get_radio_info()
-            active_p = TUNER_STATE.get("preset") or self._tuner_preset
+            active_p = getattr(info, "preset_num", None)
             if active_p:
                 attrs["radio_preset"] = active_p
+            else:
+                attrs["radio_preset"] = None
             if info.frequency:
                 attrs["radio_frequenza"] = info.frequency
             if info.is_known:
@@ -1163,27 +1227,28 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         else:
             await self._gateway_handler.send(OWNSoundCommand.set_volume(self._where, val))
 
-        # Gain staging: keep decoder volume proportionally higher than the zone volume
+        # Gain staging: keep decoder volume proportionally higher than the zone volume (solo se pre_gain > 0)
         if self._active_decoder and self._source not in ["Radio FM (Tuner)", "7"]:
             pool = self._get_pool()
             if pool:
                 pre_gain_pct = pool.get_pre_gain(self._active_decoder)
-                decoder_volume = min(1.0, max(0.0, volume + pre_gain_pct / 100.0))
-                self._syncing_volume = True
-                try:
-                    await self.hass.services.async_call(
-                        "media_player",
-                        "volume_set",
-                        {
-                            "entity_id": self._active_decoder,
-                            "volume_level": decoder_volume,
-                        },
-                        blocking=False,
-                    )
-                except Exception as err:
-                    LOGGER.debug("Could not set volume on decoder %s: %s", self._active_decoder, err)
-                finally:
-                    self._syncing_volume = False
+                if pre_gain_pct > 0:
+                    decoder_volume = min(1.0, max(0.0, volume + pre_gain_pct / 100.0))
+                    self._syncing_volume = True
+                    try:
+                        await self.hass.services.async_call(
+                            "media_player",
+                            "volume_set",
+                            {
+                                "entity_id": self._active_decoder,
+                                "volume_level": decoder_volume,
+                            },
+                            blocking=False,
+                        )
+                    except Exception as err:
+                        LOGGER.debug("Could not set volume on decoder %s: %s", self._active_decoder, err)
+                    finally:
+                        self._syncing_volume = False
 
         self.async_write_ha_state()
 
@@ -1202,16 +1267,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 pool = self._get_pool()
                 if pool:
                     pre_gain_pct = pool.get_pre_gain(self._active_decoder)
-                    decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
-                    try:
-                        await self.hass.services.async_call(
-                            "media_player",
-                            "volume_set",
-                            {"entity_id": self._active_decoder, "volume_level": decoder_volume},
-                            blocking=False,
-                        )
-                    except Exception:
-                        pass
+                    if pre_gain_pct > 0:
+                        decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
+                        try:
+                            await self.hass.services.async_call(
+                                "media_player",
+                                "volume_set",
+                                {"entity_id": self._active_decoder, "volume_level": decoder_volume},
+                                blocking=False,
+                            )
+                        except Exception:
+                            pass
         self.async_write_ha_state()
 
     async def async_volume_down(self):
@@ -1229,16 +1295,17 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 pool = self._get_pool()
                 if pool:
                     pre_gain_pct = pool.get_pre_gain(self._active_decoder)
-                    decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
-                    try:
-                        await self.hass.services.async_call(
-                            "media_player",
-                            "volume_set",
-                            {"entity_id": self._active_decoder, "volume_level": decoder_volume},
-                            blocking=False,
-                        )
-                    except Exception:
-                        pass
+                    if pre_gain_pct > 0:
+                        decoder_volume = min(1.0, max(0.0, self._volume_level + pre_gain_pct / 100.0))
+                        try:
+                            await self.hass.services.async_call(
+                                "media_player",
+                                "volume_set",
+                                {"entity_id": self._active_decoder, "volume_level": decoder_volume},
+                                blocking=False,
+                            )
+                        except Exception:
+                            pass
         self.async_write_ha_state()
 
     async def async_mute_volume(self, mute: bool):
@@ -1469,19 +1536,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 await self._gateway_handler.send(cmd)
                 await asyncio.sleep(0.2)
 
-        # Gain staging: imposta il volume del decoder proporzionalmente al volume della stanza
+        # Gain staging: imposta il volume del decoder proporzionalmente al volume della stanza (solo se pre_gain > 0)
         pre_gain_pct = pool.get_pre_gain(decoder_id)
-        cur_vol = self._volume_level if self._volume_level is not None else 0.5
-        decoder_volume = min(1.0, max(0.0, cur_vol + pre_gain_pct / 100.0))
-        try:
-            await self.hass.services.async_call(
-                "media_player",
-                "volume_set",
-                {"entity_id": decoder_id, "volume_level": decoder_volume},
-                blocking=False,
-            )
-        except Exception as err:
-            LOGGER.debug("Could not pre-set volume on decoder %s: %s", decoder_id, err)
+        if pre_gain_pct > 0:
+            cur_vol = self._volume_level if self._volume_level is not None else 0.5
+            decoder_volume = min(1.0, max(0.0, cur_vol + pre_gain_pct / 100.0))
+            try:
+                await self.hass.services.async_call(
+                    "media_player",
+                    "volume_set",
+                    {"entity_id": decoder_id, "volume_level": decoder_volume},
+                    blocking=False,
+                )
+            except Exception as err:
+                LOGGER.debug("Could not pre-set volume on decoder %s: %s", decoder_id, err)
 
         # Invia lo streaming URL al decoder esterno
         service_data = {
@@ -1544,13 +1612,27 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 await asyncio.sleep(0.15)
                 await self._send_own_command(f"*#22*{TUNER_WHERE}*#6*{p_to_recall}##")
             else:
-                src_num = "2"
-                if "3" in source:
-                    src_num = "3"
-                elif "1" in source:
-                    src_num = "1"
-                elif "4" in source:
-                    src_num = "4"
+                # Estrazione accurata del canale sorgente BTicino (1-4)
+                src_num = None
+                pool = self._get_pool()
+                if pool and pool.is_configured:
+                    for dec_id, s_num in pool.decoder_map.items():
+                        dec_state = self.hass.states.get(dec_id)
+                        fname = dec_state.attributes.get("friendly_name") if dec_state else None
+                        lbl = f"Ingresso AUX {s_num} ({fname})" if fname else f"Ingresso AUX {s_num}"
+                        if source == lbl or source.strip() == f"Ingresso AUX {s_num}" or source == dec_id:
+                            src_num = str(s_num)
+                            break
+
+                if not src_num:
+                    import re
+                    match = re.search(r"(?:AUX|Sorgente)\s*([1-4])", source, re.IGNORECASE)
+                    if match:
+                        src_num = match.group(1)
+                    elif pool and len(pool.decoder_map) == 1:
+                        src_num = str(list(pool.decoder_map.values())[0])
+                    else:
+                        src_num = "2"
 
                 target_lbl = self._get_source_label(src_num)
                 if not was_off and self._source == target_lbl:
@@ -1634,8 +1716,40 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 self.async_write_ha_state()
 
         # ── Gestione eventi WHO 22 (Filodiffusione BTicino) ───────────────────
-        # 1. Messaggio Frequenza dal Tuner (Dimensione 5: *#22*5#2#1*5*1*<freq>## o *#22*2#1*5*1*<freq>##)
-        if ("*5*1*" in msg_str or "*#5*1*" in msg_str) and ("*22*" in msg_str or "*#22*" in msg_str):
+        # 1a. Messaggio Preset memorizzato dal Tuner (Dimensione 11: *#22*5#2#1*11*1*<freq>*<preset>##)
+        if ("*11*1*" in msg_str or "*#11*1*" in msg_str) and ("*22*" in msg_str or "*#22*" in msg_str):
+            try:
+                parts = [p for p in msg_str.strip("#").split("*") if p]
+                if len(parts) >= 5:
+                    preset_str = parts[-1]
+                    freq_raw_str = parts[-2]
+                    if preset_str.isdigit() and freq_raw_str.isdigit():
+                        p_idx = int(preset_str)
+                        freq_raw = int(freq_raw_str)
+                        p_freq_str = None
+                        if 870 <= freq_raw <= 1085:
+                            p_freq_str = f"{freq_raw / 10.0:.1f} MHz"
+                        elif 8700 <= freq_raw <= 10850:
+                            f_float = freq_raw / 100.0
+                            p_freq_str = f"{f_float:.2f}".rstrip("0").rstrip(".") + " MHz" if (freq_raw % 10 != 0) else f"{f_float:.1f} MHz"
+                        elif 87000 <= freq_raw <= 108500:
+                            f_float = freq_raw / 1000.0
+                            p_freq_str = f"{f_float:.2f}".rstrip("0").rstrip(".") + " MHz" if (freq_raw % 100 != 0) else f"{f_float:.1f} MHz"
+
+                        if p_freq_str and 1 <= p_idx <= 5:
+                            TUNER_PRESETS[p_idx] = p_freq_str
+                            curr_p = TUNER_STATE.get("preset") or self._tuner_preset
+                            if curr_p == p_idx:
+                                TUNER_STATE["freq"] = p_freq_str
+                                self._tuner_freq = p_freq_str
+                                if self._source in ["Radio FM (Tuner)", "7"]:
+                                    self._refresh_media_title()
+                                    self.async_write_ha_state()
+            except Exception as ex:
+                LOGGER.debug("Errore parsing preset dimensione 11 %s: %s", msg_str, ex)
+
+        # 1b. Messaggio Frequenza dal Tuner (Dimensione 5: *#22*5#2#1*5*1*<freq>## o *#22*2#1*5*1*<freq>##)
+        elif ("*5*1*" in msg_str or "*#5*1*" in msg_str) and ("*22*" in msg_str or "*#22*" in msg_str):
             try:
                 parts = [p for p in msg_str.strip("#").split("*") if p]
                 if len(parts) >= 4:
@@ -1671,25 +1785,27 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                             # La nuova frequenza è valida e confermata dal tuner:
                             eff_p = target_p if (now < TUNER_STATE.get("transit_until", 0.0) and target_p) else active_p
                             TUNER_STATE["freq"] = freq_str
+                            self._tuner_freq = freq_str
                             TUNER_STATE["transit_until"] = 0.0
                             TUNER_STATE["target_preset"] = None
                             TUNER_STATE["old_freq"] = None
 
-                            if eff_p and 1 <= eff_p <= 5:
-                                # Memorizzazione dinamica nel preset attivo:
+                            matched_p = None
+                            for p_num, p_freq in TUNER_PRESETS.items():
+                                if p_freq and p_freq == freq_str:
+                                    matched_p = p_num
+                                    break
+
+                            if matched_p is not None:
+                                TUNER_STATE["preset"] = matched_p
+                                self._tuner_preset = matched_p
+                            elif eff_p and 1 <= eff_p <= 5 and TUNER_PRESETS.get(eff_p) is None:
                                 TUNER_PRESETS[eff_p] = freq_str
                                 TUNER_STATE["preset"] = eff_p
                                 self._tuner_preset = eff_p
                             else:
-                                matched_p = None
-                                for p_num, p_freq in TUNER_PRESETS.items():
-                                    if p_freq == freq_str:
-                                        matched_p = p_num
-                                        break
-                                TUNER_STATE["preset"] = matched_p
-                                self._tuner_preset = matched_p
-
-                            self._tuner_freq = freq_str
+                                TUNER_STATE["preset"] = None
+                                self._tuner_preset = None
 
                             if self._source in ["Radio FM (Tuner)", "7"]:
                                 self._refresh_media_title()
