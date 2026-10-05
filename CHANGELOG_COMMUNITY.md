@@ -47,17 +47,19 @@ Inherited from the pioneering work of the *GreenGrassBlueOcean* project, we adop
 
 ## 2. Decoder Pool (Dynamic Proxy) Configuration Guide
 
-To configure external streamers connected to the AUX inputs of the audio matrix:
+The integration features a guided **two-step configuration wizard** in Options Flow to route external streamers (Amazon Echo Dot, WiiM, Arylic, Linkplay, HiFiBerry, etc.) connected to the AUX inputs of the BTicino audio matrix (F441/F441M):
 
 1. In Home Assistant, navigate to **Settings** ➔ **Devices & Services** ➔ **MyHome (Modernized)**.
-2. Click **Configure** (Options Flow) and select the section **Decoder Pool Configuration (External AUX Sources)**.
-3. Configure the parameters:
-   * **Enable Decoder Pool**: Select `True`.
-   * **Primary Decoder Entity (AUX 2)**: Select the Home Assistant entity corresponding to the streamer connected to AUX input 2 (e.g., `media_player.echo_dot_living_room` or `media_player.wiim_mini`).
-   * **Matrix Source for Primary Decoder**: Set to `2` (corresponding to physical input AUX 2 on the F441 matrix).
-   * **Volume Pre-Gain**: Gain value (recommended: `0.75` - `0.85` to avoid analog clipping).
-   * **Secondary Decoder Entity (AUX 3)** *(optional)*: Select an optional secondary streamer and its matrix source `3`.
-4. Click **Submit**: the pool is re-instantiated dynamically without requiring a Home Assistant restart.
+2. Click **Configure** (Options Flow) and select **Configure Streaming Decoders (Dynamic Proxy)**.
+3. **Step 1: Streamer Routing Mode (`decoders`)**:
+   * **Shared Source (Multi-Room / Common Input)**: Multiple rooms dynamically share available external decoders. When a room starts streaming (Spotify, cloud radio, TTS, Music Assistant), the first free AUX input is dynamically claimed and automatically released when playback stops.
+   * **Exclusive Matrix (1 Streamer per Room)**: Dedicated point-to-point mapping, where specific external decoders are exclusively bound to designated amplifier zones.
+4. **Step 2: Streamer Inputs & Pre-Gain Staging (`decoders_slots`)**:
+   Up to **4 configurable slots** matching matrix hardware inputs (AUX 1–4):
+   * **Decoder Slot N (`media_player`)**: Select the Home Assistant media player entity representing the hardware streamer.
+   * **BTicino Source Slot N (1–4)**: Select the corresponding physical AUX input on the audio matrix (e.g., Source `2` for AUX 2, Source `3` for AUX 3).
+   * **Pre-gain Slot N (0–50% Anti-Hiss Offset)**: Configurable analog gain staging calibration. Prevents DAC background hiss on sensitive in-wall speakers while ensuring external volume sliders operate comfortably without clipping or saturation.
+5. Click **Submit**: The decoder pool is dynamically reloaded in real time without requiring a Home Assistant restart.
 
 ---
 

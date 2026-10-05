@@ -47,17 +47,19 @@ Dall'eccellente lavoro del progetto *GreenGrassBlueOcean* abbiamo ereditato le f
 
 ## 2. Guida alla Configurazione del Decoder Pool (Dynamic Proxy)
 
-Per configurare gli streamer esterni collegati agli ingressi AUX della matrice audio:
+L'integrazione mette a disposizione un **wizard guidato a due passaggi** nelle opzioni per configurare e instradare gli streamer esterni (Amazon Echo Dot, WiiM, Arylic, Linkplay, HiFiBerry, ecc.) collegati agli ingressi AUX della matrice audio BTicino (F441/F441M):
 
 1. In Home Assistant, andare su **Impostazioni** ➔ **Dispositivi e Servizi** ➔ **MyHome (Modernized)**.
-2. Cliccare su **Configura** (Options Flow) e selezionare la sezione **Configurazione Decoder Pool (Sorgenti Esterne AUX)**.
-3. Impostare i parametri:
-   * **Abilita Decoder Pool**: Selezionare `True`.
-   * **Entità Decoder Primario (AUX 2)**: Selezionare l'entità di Home Assistant corrispondente allo streamer collegato all'ingresso AUX 2 (es. `media_player.echo_dot_di_patrick` o `media_player.wiim_mini`).
-   * **Sorgente Matrice per Decoder Primario**: Impostare `2` (corrispondente all'ingresso fisico AUX 2 della matrice F441).
-   * **Pre-Gain Volume**: Valore di guadagno (consigliato: `0.75` - `0.85` per evitare distorsioni sull'ingresso analogico).
-   * **Entità Decoder Secondario (AUX 3)** *(opzionale)*: Selezionare l'eventuale secondo streamer e la relativa sorgente `3`.
-4. Cliccare su **Invia**: il pool viene ricreato a caldo senza necessità di riavviare Home Assistant.
+2. Cliccare su **Configura** (Options Flow) e selezionare **Configura Decoder Streaming (Dynamic Proxy)**.
+3. **Passaggio 1: Modalità Instradamento Streamer (`decoders`)**:
+   * **Sorgente Condivisa (Multiroom / Ingresso comune)**: Più stanze condividono dinamicamente gli streamer disponibili. Quando una stanza avvia la riproduzione (Spotify, radio web, TTS, Music Assistant), il primo decoder libero viene impegnato sulla relativa sorgente AUX e rilasciato automaticamente al termine dell'ascolto.
+   * **Matrice Esclusiva (1 Streamer per Stanza)**: Mappatura punto-punto dedicata, dove specifici decoder sono vincolati in modo permanente a determinate zone/amplificatori.
+4. **Passaggio 2: Configurazione Ingressi e Guadagno Streamer (`decoders_slots`)**:
+   Fino a **4 Slot configurabili** corrispondenti agli ingressi fisici della matrice (AUX 1–4):
+   * **Decoder Slot N (`media_player`)**: Selezionare l'entità Home Assistant corrispondente allo streamer collegato.
+   * **Sorgente BTicino Slot N (1–4)**: Indicare l'ingresso AUX fisico della matrice (es. Sorgente `2` per AUX 2, Sorgente `3` per AUX 3).
+   * **Pre-gain Slot N (Offset anti-fruscio 0–50%)**: Calibrazione del gain staging analogico. Elimina il fruscio di fondo degli stadi DAC sui punti sonori da incasso a basso volume, garantendo un'escursione ottimale del volume senza saturazioni o distorsioni.
+5. Cliccare su **Invia**: Il decoder pool viene riavviato e aggiornato a caldo senza necessità di riavviare Home Assistant.
 
 ---
 
