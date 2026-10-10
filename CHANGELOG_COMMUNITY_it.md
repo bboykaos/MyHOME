@@ -234,3 +234,19 @@ Grazie all'integrazione del server formale **`openwebnet-mcp`** (basato sulle sp
 
 ### C. Supporto Nativo Dimensione 11 per Memorie Preset
 * Introdotto il gestore della Dimensione 11 (`*#22*5#2#1*11*1*<FREQ>*<PRESET>##`) inviata dal modulo F500, garantendo la fedele sincronizzazione dei preset memorizzati nell'hardware ed evitando sovrascritture accidentali durante cambi frequenza o riavvii.
+
+---
+
+## 13. Risoluzione Follow-Me Multi-Room e Routing Sorgenti AUX / Spotify (`media_player.py`)
+
+### A. Eliminazione Forzatura Tuner all'Accensione Zonale
+* **Problema**: L'accensione di una stanza inviava come prima istruzione il telegramma hardware `*22*1#4#7*WHERE##` (sorgente 7 = Tuner Radio FM), provocando l'aggancio al sintonizzatore, l'eco del bus `#4#7`, il rilascio del decoder e la messa in pausa immediata di Spotify.
+* **Risoluzione**: `async_turn_on()` determina ora **prima** la sorgente attiva desiderata (`_get_active_house_source()` o la sorgente memorizzata). Se la sorgente è un ingresso AUX (es. AUX 2 per Spotify/WiiM), invia direttamente `*22*1#4#{src_num}*WHERE##`, accendendo l'amplificatore sul canale desiderato senza toccare la Radio né interrompere la riproduzione in corso.
+* Applicato lo stesso fix per le sorgenti AUX in `async_select_source()` e `async_play_media()`.
+
+### B. Eredità Intelligente della Sorgente Attiva (Follow-Me & Multi-Room)
+* `_get_active_house_source()` rileva ora in tempo reale sia se un'altra stanza BTicino sta suonando, sia se uno degli streamer configurati nel pool (es. WiiM, Spotify Connect, Echo Dot) è in stato `PLAYING` o `BUFFERING`, permettendo a qualsiasi nuova stanza di unirsi istantaneamente all'ascolto della casa.
+* In caso di riassegnazione del decoder in modalità esclusiva (Follow-Me 1-to-1), il callback `_decoder_lost` provvede ora allo spegnimento fisico immediato dell'amplificatore della stanza precedente (`*22*1#4#0*OLD_WHERE##` e standby `0#4#0`).
+
+### C. Esposizione Permanente dei Preset Radio (`radio_presets`)
+* L'attributo `radio_presets` (P1–P5 con frequenze ed emittenti affiancate) viene esposto incondizionatamente in `extra_state_attributes` per qualsiasi sorgente o stato dell'entità, garantendo piena accessibilità da schede Lovelace, automazioni e integrità nel ripristino di stato dopo un riavvio di Home Assistant.

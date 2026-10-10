@@ -234,3 +234,19 @@ Leveraging the formal **`openwebnet-mcp`** protocol server (grounded in official
 
 ### C. Dimension 11 Preset Bank Memory Support
 * Added parsing for Dimension 11 telegrams (`*#22*5#2#1*11*1*<FREQ>*<PRESET>##`) broadcast by the F500 tuner hardware, preventing accidental corruption of preset memories during manual frequency sweeps or state restore.
+
+---
+
+## 13. Follow-Me Multi-Room & AUX / Spotify Source Routing Resolution (`media_player.py`)
+
+### A. Elimination of Preemptive Tuner Hijacking on Zone Turn-On
+* **Root Cause**: Powering on a zone unconditionally sent `*22*1#4#7*WHERE##` (source 7 = FM Tuner) before inspecting the active room source. This triggered a bus `#4#7` echo that forced the player to `"Radio FM (Tuner)"`, released the decoder, and paused Spotify on the bus.
+* **Resolution**: `async_turn_on()` now resolves the desired active source **first** (`_get_active_house_source()` or saved source). If an AUX source is active (e.g. AUX 2 for Spotify/WiiM), it directly sends `*22*1#4#{src_num}*WHERE##` to turn on the zone amplifier on that specific AUX channel without touching the Tuner or interrupting ongoing playback.
+* Fixed the same premature `1#4#7` transmission for AUX sources in `async_select_source()` and `async_play_media()`.
+
+### B. Intelligent Active Source Inheritance (Follow-Me & Multi-Room)
+* `_get_active_house_source()` now detects in real time whether another BTicino room is playing or if an external streaming decoder (WiiM, Spotify Connect, Echo Dot) is actively `PLAYING` or `BUFFERING`, allowing newly activated zones to seamlessly join the whole-house audio session.
+* When a single-decoder assignment is transferred in exclusive Follow-Me mode, `_decoder_lost` now issues hardware standby telegrams (`*22*1#4#0*OLD_WHERE##` and `0#4#0`) to immediately silence the vacated room's physical speakers.
+
+### C. Persistent Radio Preset Exposure (`radio_presets`)
+* The `radio_presets` attribute (P1–P5 with paired frequencies and station titles) is now unconditionally present in `extra_state_attributes` across all playback states and sources, ensuring persistent state restoration across Home Assistant reboots and full Lovelace dashboard compatibility.

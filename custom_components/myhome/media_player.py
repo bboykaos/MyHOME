@@ -319,46 +319,73 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         mac_data = self.hass.data.get(DOMAIN, {}).get(self._gateway_handler.mac, {})
         return mac_data.get("decoder_pool")
 
-    def _is_any_other_zone_on_radio(self) -> bool:
-        """Check if any other configured sound zone is currently playing Radio FM."""
+    def _get_all_myhome_media_players(self) -> list["MyHOMEMediaPlayer"]:
+        """Return all instantiated MyHOMEMediaPlayer entities in this gateway."""
+        players = []
         try:
-            configured_players = (
+            mac = getattr(self._gateway_handler, "mac", None)
+            platforms_data = (
                 self.hass.data.get(DOMAIN, {})
-                .get(self._gateway_handler.mac, {})
+                .get(mac, {})
                 .get(CONF_PLATFORMS, {})
                 .get(PLATFORM, {})
             )
-            for player in configured_players.values():
-                if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
-                    src = getattr(player, "_source", "")
-                    if src and ("Radio" in src or src == "7"):
-                        return True
-        except Exception:
-            pass
+            for dev_data in platforms_data.values():
+                if isinstance(dev_data, dict):
+                    for ent in dev_data.get(CONF_ENTITIES, {}).values():
+                        if isinstance(ent, MyHOMEMediaPlayer):
+                            players.append(ent)
+                elif isinstance(dev_data, MyHOMEMediaPlayer):
+                    players.append(dev_data)
+        except Exception as err:
+            LOGGER.debug("Errore recupero lista media players: %s", err)
+        return players
+
+    def _is_any_other_zone_on_radio(self) -> bool:
+        """Check if any other configured sound zone is currently playing Radio FM."""
+        for player in self._get_all_myhome_media_players():
+            if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
+                src = getattr(player, "_source", "")
+                if src and ("Radio" in src or src == "7"):
+                    return True
         return False
 
     def _is_any_zone_playing_source(self, source: str | None = None, decoder_id: str | None = None) -> bool:
-        """Check if any other zone is currently ON and playing."""
-        try:
-            configured_players = (
-                self.hass.data.get(DOMAIN, {})
-                .get(self._gateway_handler.mac, {})
-                .get(CONF_PLATFORMS, {})
-                .get(PLATFORM, {})
-            )
-            for player in configured_players.values():
-                if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
-                    if source is not None:
-                        p_src = getattr(player, "_source", "")
-                        if p_src and (p_src == source or source in p_src or p_src in source):
-                            return True
-                    if decoder_id is not None:
-                        if getattr(player, "_active_decoder", None) == decoder_id:
-                            return True
-                    if source is None and decoder_id is None:
-                        return True
-        except Exception:
-            pass
+        """Check if any other zone is currently ON and playing the specified source or decoder."""
+        pool = self._get_pool()
+        target_src_num = None
+        if decoder_id and pool and pool.is_configured:
+            target_src_num = pool.decoder_map.get(decoder_id)
+
+        for player in self._get_all_myhome_media_players():
+            if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
+                p_src = str(getattr(player, "_source", "") or "")
+                p_dec = getattr(player, "_active_decoder", None)
+
+                # Se l'altra stanza è sulla Radio FM, non sta usando questo decoder/streamer
+                if "Radio" in p_src or p_src == "7":
+                    continue
+
+                # 1. Corrispondenza del decoder attivo
+                if decoder_id is not None and p_dec == decoder_id:
+                    return True
+
+                # 2. Corrispondenza del canale AUX collegato a questo decoder (es. "AUX 2")
+                if target_src_num is not None and f"AUX {target_src_num}" in p_src:
+                    return True
+
+                # 3. Se c'è un solo decoder configurato nel pool e l'altra stanza è accesa su AUX / streamer
+                if pool and len(pool.decoder_map) == 1:
+                    return True
+
+                # 4. Corrispondenza della sorgente testuale passata
+                if source is not None and (p_src == source or source in p_src or p_src in source):
+                    return True
+
+                # 5. Se nessun filtro specifico è richiesto e l'altra stanza è attiva su una sorgente AUX
+                if source is None and decoder_id is None:
+                    return True
+
         return False
 
     def _get_global_matrix_source(self) -> str | None:
@@ -374,22 +401,26 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         return None
 
     def _get_active_house_source(self) -> tuple[str | None, str | None]:
-        """Return (source_name, active_decoder) of an actively playing BTicino zone in the house."""
-        try:
-            configured_players = (
-                self.hass.data.get(DOMAIN, {})
-                .get(self._gateway_handler.mac, {})
-                .get(CONF_PLATFORMS, {})
-                .get(PLATFORM, {})
-            )
-            for player in configured_players.values():
-                if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
-                    src = getattr(player, "_source", None)
-                    dec = getattr(player, "_active_decoder", None)
-                    if src:
-                        return (src, dec)
-        except Exception:
-            pass
+        """Return (source_name, active_decoder) of an actively playing BTicino zone or external streamer in the house."""
+        for player in self._get_all_myhome_media_players():
+            if player != self and getattr(player, "_state", None) in (MediaPlayerState.PLAYING, "playing"):
+                src = getattr(player, "_source", None)
+                dec = getattr(player, "_active_decoder", None)
+                if src:
+                    return (src, dec)
+
+        # Se nessuna zona BTicino è attiva, verifica se uno streamer configurato (WiiM, Echo, Spotify) sta già suonando
+        pool = self._get_pool()
+        if pool and pool.is_configured:
+            for dec_id, src_num in pool.decoder_map.items():
+                dec_st = self.hass.states.get(dec_id)
+                if dec_st and dec_st.state in (MediaPlayerState.PLAYING, MediaPlayerState.BUFFERING):
+                    return (self._get_source_label(str(src_num)), dec_id)
+                cloud_p = self._find_cloud_streamer_for_decoder(dec_id)
+                if cloud_p:
+                    cp_st = self.hass.states.get(cloud_p)
+                    if cp_st and cp_st.state in (MediaPlayerState.PLAYING, MediaPlayerState.BUFFERING):
+                        return (self._get_source_label(str(src_num)), dec_id)
 
         return (None, None)
 
@@ -513,11 +544,21 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         # Decoder reassignment listener (follow-me: when another room claims the decoder)
         @callback
         def _decoder_lost(*args):
-            LOGGER.info("%s: Decoder trasferito a un'altra stanza — rilascio decoder locale", self.entity_id)
+            LOGGER.info("%s: Decoder trasferito a un'altra stanza — rilascio decoder locale e spegnimento amplificatore", self.entity_id)
             self._active_decoder = None
             self._state = MediaPlayerState.OFF
             self._refresh_media_title()
             self.async_write_ha_state()
+
+            async def _hw_turn_off():
+                if self._who == "22":
+                    await self._send_own_command(f"*22*1#4#0*{self._where}##")
+                    await asyncio.sleep(0.08)
+                    await self._send_own_command(f"*22*0#4#0*{self._where}##")
+                else:
+                    await self._gateway_handler.send(OWNSoundCommand.turn_off(self._where))
+
+            self.hass.async_create_task(_hw_turn_off())
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -594,6 +635,71 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         )
 
         return info
+
+    def _get_radio_presets_map(self) -> dict[str, str]:
+        """Return map of presets (P1..P5) with formatted frequency and station name."""
+        from .radio_catalog import RadioCatalog
+        from .const import CONF_RADIO_ZONE_PROFILE, CONF_RADIO_CUSTOM_FREQUENCIES, DEFAULT_RADIO_ZONE_PROFILE
+        mac = getattr(self._gateway_handler, "mac", None)
+        options = self.hass.data.get(DOMAIN, {}).get(mac, {}).get("options", {}) if mac else {}
+        if not options and hasattr(self._gateway_handler, "config_entry"):
+            options = getattr(self._gateway_handler.config_entry, "options", {})
+
+        zone = options.get(CONF_RADIO_ZONE_PROFILE, DEFAULT_RADIO_ZONE_PROFILE)
+        custom_txt = options.get(CONF_RADIO_CUSTOM_FREQUENCIES, "")
+        custom_map = RadioCatalog.parse_custom_frequencies(custom_txt)
+
+        presets_map = {}
+        for k, v in TUNER_PRESETS.items():
+            if v:
+                st_info = RadioCatalog.resolve_station(
+                    freq_str=v,
+                    preset_num=k,
+                    zone_profile=zone,
+                    custom_mapping=custom_map,
+                    enable_logos=False,
+                )
+                presets_map[f"P{k}"] = st_info.title
+            else:
+                presets_map[f"P{k}"] = "Non sintonizzato"
+        return presets_map
+
+    def _get_radio_preset_logos(self) -> dict[str, str | None]:
+        """Return map of presets (P1..P5) with direct logo URLs resolved from catalog."""
+        from .radio_catalog import RadioCatalog
+        from .const import (
+            CONF_RADIO_ZONE_PROFILE,
+            CONF_RADIO_CUSTOM_FREQUENCIES,
+            CONF_RADIO_LOGOS_PATH,
+            DEFAULT_RADIO_ZONE_PROFILE,
+            DEFAULT_RADIO_LOGOS_PATH,
+        )
+        mac = getattr(self._gateway_handler, "mac", None)
+        options = self.hass.data.get(DOMAIN, {}).get(mac, {}).get("options", {}) if mac else {}
+        if not options and hasattr(self._gateway_handler, "config_entry"):
+            options = getattr(self._gateway_handler.config_entry, "options", {})
+
+        zone = options.get(CONF_RADIO_ZONE_PROFILE, DEFAULT_RADIO_ZONE_PROFILE)
+        custom_txt = options.get(CONF_RADIO_CUSTOM_FREQUENCIES, "")
+        custom_map = RadioCatalog.parse_custom_frequencies(custom_txt)
+        logos_path = options.get(CONF_RADIO_LOGOS_PATH, DEFAULT_RADIO_LOGOS_PATH)
+
+        logos_map = {}
+        for k, v in TUNER_PRESETS.items():
+            if v:
+                st_info = RadioCatalog.resolve_station(
+                    freq_str=v,
+                    preset_num=k,
+                    zone_profile=zone,
+                    custom_mapping=custom_map,
+                    enable_logos=True,
+                    logos_prefix=logos_path,
+                    hass=self.hass,
+                )
+                logos_map[f"P{k}"] = st_info.logo_url
+            else:
+                logos_map[f"P{k}"] = None
+        return logos_map
 
     def _refresh_media_title(self):
         """Update media_title attribute based on current state, source, and tuner info."""
@@ -895,6 +1001,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         attrs = {
             "volume_bticino": cur_val,
             "scala_volume": "1-31",
+            "radio_presets": self._get_radio_presets_map(),
+            "radio_preset_logos": self._get_radio_preset_logos(),
         }
         if self._source in ["Radio FM (Tuner)", "7"]:
             info = self._get_radio_info()
@@ -908,30 +1016,6 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             if info.is_known:
                 attrs["radio_stazione"] = info.name
             attrs["radio_info"] = info.title
-
-            # Mappa preset con frequenza e nome emittente affiancati
-            from .radio_catalog import RadioCatalog
-            from .const import CONF_RADIO_ZONE_PROFILE, CONF_RADIO_CUSTOM_FREQUENCIES, DEFAULT_RADIO_ZONE_PROFILE
-            mac = getattr(self._gateway_handler, "mac", None)
-            options = self.hass.data.get(DOMAIN, {}).get(mac, {}).get("options", {}) if mac else {}
-            zone = options.get(CONF_RADIO_ZONE_PROFILE, DEFAULT_RADIO_ZONE_PROFILE)
-            custom_txt = options.get(CONF_RADIO_CUSTOM_FREQUENCIES, "")
-            custom_map = RadioCatalog.parse_custom_frequencies(custom_txt)
-
-            presets_map = {}
-            for k, v in TUNER_PRESETS.items():
-                if v:
-                    st_info = RadioCatalog.resolve_station(
-                        freq_str=v,
-                        preset_num=k,
-                        zone_profile=zone,
-                        custom_mapping=custom_map,
-                        enable_logos=False,
-                    )
-                    presets_map[f"P{k}"] = st_info.title
-                else:
-                    presets_map[f"P{k}"] = "Non sintonizzato"
-            attrs["radio_presets"] = presets_map
         elif self._active_decoder:
             attrs["active_decoder"] = self._active_decoder
         return attrs
@@ -1090,6 +1174,9 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             targets = [t for t in (spotify_entity, dec_to_release) if t]
             LOGGER.info("DecoderPool: Nessun'altra zona attiva su %s — invio pausa a %s", dec_to_release, targets)
             for t in targets:
+                t_state = self.hass.states.get(t)
+                if not t_state or t_state.state not in (MediaPlayerState.PLAYING, "playing"):
+                    continue
                 try:
                     await self.hass.services.async_call(
                         "media_player", "media_pause", {"entity_id": t}, blocking=False
@@ -1109,15 +1196,13 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
         await self._send_own_command(f"*22*2#4#7*5#2#{src_num}##")
 
     async def async_turn_on(self, **kwargs):
-        """Turn the media player on without changing the hardware matrix source."""
+        """Turn the media player on, honoring active house source, multiroom, and follow-me."""
         if self._who == "22":
-            # Accendi sempre l'amplificatore da incasso della stanza
-            await self._send_own_command(f"*22*1#4#7*{self._where}##")
-
-            # Determina la sorgente:
-            # 1. Se un'altra stanza è già accesa, eredita la sua sorgente e decoder
+            # Determina la sorgente desiderata PRIMA di inviare comandi hardware:
+            # 1. Se un'altra stanza (o uno streamer) è già accesa nella casa, eredita la sorgente (Follow-me / Multiroom)
             # 2. Altrimenti usa la sorgente globale memorizzata della matrice
             # 3. Altrimenti mantieni la sorgente precedente dell'entità
+            # 4. Fallback su "Radio FM (Tuner)"
             active_src, active_dec = self._get_active_house_source()
             global_src = self._get_global_matrix_source()
             target_source = active_src or global_src or self._source or "Radio FM (Tuner)"
@@ -1127,6 +1212,8 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             if "Radio" in target_source:
                 self._active_decoder = None
                 self._refresh_media_title()
+                # Accendi l'amplificatore zonale sulla sorgente 7 (Radio Tuner F500)
+                await self._send_own_command(f"*22*1#4#7*{self._where}##")
                 if not active_src:
                     await asyncio.sleep(0.12)
                     await self._async_switch_source_hw("1")
@@ -1134,14 +1221,20 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                     await asyncio.sleep(0.12)
                     await self._send_own_command(f"*#22*{TUNER_WHERE}*#6*{p_to_recall}##")
             else:
-                # Se la stanza era o è impostata su AUX, allinea la matrice hardware sul canale AUX corretto
+                # Sorgente AUX / Streamer (es. Spotify, WiiM, Echo Dot)
                 src_num = "2"
                 for s_candidate in ("1", "2", "3", "4"):
                     if f"AUX {s_candidate}" in target_source:
                         src_num = s_candidate
                         break
+
+                # Accendi l'amplificatore zonale direttamente sul canale AUX target (1#4#src_num)
+                # senza toccare il Tuner (1#4#7) che causerebbe la disconnessione dello streamer!
+                await self._send_own_command(f"*22*1#4#{src_num}*{self._where}##")
                 await asyncio.sleep(0.15)
                 await self._async_switch_source_hw(src_num)
+                if active_dec and not self._active_decoder:
+                    self._active_decoder = active_dec
                 await self._async_claim_decoder_and_resume()
                 self._refresh_media_title()
         else:
@@ -1525,7 +1618,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
             target_lbl = self._get_source_label(src_id)
 
             if self._state not in (MediaPlayerState.PLAYING, "playing"):
-                await self._send_own_command(f"*22*1#4#7*{self._where}##")
+                await self._send_own_command(f"*22*1#4#{src_id}*{self._where}##")
                 await asyncio.sleep(0.18)
 
             await self._async_switch_source_hw(src_id)
@@ -1646,7 +1739,7 @@ class MyHOMEMediaPlayer(MyHOMEEntity, MediaPlayerEntity, RestoreEntity):
                 self.async_write_ha_state()
 
                 if was_off:
-                    await self._send_own_command(f"*22*1#4#7*{self._where}##")
+                    await self._send_own_command(f"*22*1#4#{src_num}*{self._where}##")
                     await asyncio.sleep(0.18)
 
                 await self._async_switch_source_hw(src_num)
